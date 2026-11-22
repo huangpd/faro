@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 
 	"faro/internal/engine"
 	"faro/internal/rules"
@@ -42,6 +43,15 @@ type app struct {
 	rulesEdit string
 	rulesErrs []rules.Error
 	rulesTab  int // 0 the person's sites in groups, 1 the rules text
+
+	rulesOpen       bool // the text is open to editing
+	showConfig      bool
+	unlockAsk       bool
+	rulesCode       *editor.State // the rules text in a code editor
+	rulesSeen       string        // the text the editor was last made the same as
+	rulesVer        uint64        // the buffer's version then
+	rulesMarked     uint64        // the version the mistakes were last marked at
+	rulesMarkedErrs int
 
 	domSel    map[string]*string   // the places' drop-downs, by group
 	domTokens map[string]*[]string // each group's sites, as the field holds them

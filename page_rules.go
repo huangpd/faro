@@ -40,19 +40,13 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 		return
 	}
 
-	// The text you write, and beside it what it makes: the editor does not
-	// hide the config it is turned into.
+	// The rules text is the system's: it is shut until it is opened on purpose,
+	// and the config it makes is not shown unless asked for.
 	ui.Row(c).Grow(1).Gap(16).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c).Grow(1).Gap(8).Children(func() {
-			ui.Text(c, "规则文本").FontSize(fsHeading).FontWeight(600)
-			ui.TextArea(c, &a.rulesEdit).Label("规则文本").Grow(1).Font(monoFont).FontSize(fsMeta)
-		})
-		ui.Column(c).Grow(1).Gap(8).Children(func() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "生成的配置").FontSize(fsHeading).FontWeight(600).Grow(1)
-			})
-			a.configPreview(c, st)
-		})
+		a.rulesEditor(c, a.rulesOpen)
+		if a.showConfig {
+			ui.Column(c).Grow(1).Children(func() { a.configPreview(c, st) })
+		}
 	})
 	for _, e := range a.rulesErrs {
 		ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
@@ -61,13 +55,31 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 		})
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		if a.button(c, btnPrimary, "check", "应用").Clicked() && st.Busy == "" {
-			a.rulesErrs = a.eng.ApplyRules(a.rulesEdit)
+		if a.rulesOpen {
+			if a.button(c, btnPrimary, "check", "应用").Clicked() && st.Busy == "" {
+				a.rulesErrs = a.eng.ApplyRules(a.rulesEdit)
+			}
+			if a.button(c, btnSecondary, "lock", "锁定").Clicked() {
+				a.rulesOpen = false
+			}
+			if a.rulesEdit != st.RulesText {
+				a.pill(c, "改动尚未生效", a.k.warn)
+			}
+		} else if a.button(c, btnSecondary, "lock-open", "解锁编辑").Clicked() {
+			a.unlockAsk = true
 		}
-		if a.rulesEdit != st.RulesText {
-			a.pill(c, "改动尚未生效", a.k.warn)
+		ui.Box(c).Grow(1)
+		label := "查看生成的配置"
+		if a.showConfig {
+			label = "隐藏生成的配置"
+		}
+		if a.button(c, btnGhost, "terminal", label).Clicked() {
+			a.showConfig = !a.showConfig
 		}
 	})
+	if ui.AlertDialog(c, &a.unlockAsk, "编辑规则文本？", "写错会让流量走错出口，应用前请先核对。", "取消", "解锁") == 1 {
+		a.rulesOpen = true
+	}
 }
 
 // configPreview shows the config the rules in force make, in a code panel:

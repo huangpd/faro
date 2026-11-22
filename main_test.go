@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 
 	"faro/internal/clashapi"
 	"faro/internal/engine"
@@ -257,7 +258,13 @@ func TestRulesPageShowsErrorsWithLines(t *testing.T) {
 	a.rulesTab = 1 // the rules text
 	good := a.eng.State().RulesText
 	tt := view(a, "规则")
-	need(t, tt, "应用", "规则文本")
+	need(t, tt, "解锁编辑", "规则文本")
+	if tt.HasText("应用") {
+		t.Error("the rules text can be applied before it is unlocked")
+	}
+	tt.Click("解锁编辑")
+	view(a, "规则").Click("解锁")
+	need(t, view(a, "规则"), "应用", "锁定")
 
 	a.rulesEdit = "route x region ZZ\nnope domain:a.com\n"
 	view(a, "规则").Click("应用")
@@ -286,7 +293,10 @@ func TestRulesPageShipsNoReadyMadeRules(t *testing.T) {
 		t.Error("a new install does not start with the base rules")
 	}
 	tt := view(a, "规则")
-	need(t, tt, "规则文本", "应用", "复制给 AI 的提示词")
+	need(t, tt, "规则文本", "解锁编辑", "复制给 AI 的提示词")
+	if tt.HasText("sing-box") {
+		t.Error("the generated config is shown without being asked for")
+	}
 	for _, txt := range tt.Texts() {
 		for _, gone := range []string{"预设", "替换为它", "追加", "AI 账号"} {
 			if strings.Contains(txt, gone) {
@@ -913,7 +923,8 @@ func TestRulesPageStartsWithTheirSitesAndAnEmptyListOffersAGroup(t *testing.T) {
 	}
 	// The other tab is the rules text, as it was.
 	tt = view(a, "规则", "规则文本")
-	need(t, tt, "应用", "生成的配置")
+	need(t, tt, "解锁编辑", "查看生成的配置")
+	need(t, view(a, "规则", "规则文本", "查看生成的配置"), "sing-box", "隐藏生成的配置")
 }
 
 func TestGroupsAreShownWithTheirPlaceAndSites(t *testing.T) {
@@ -1076,5 +1087,52 @@ func TestMenuTitleChangesNoMoreThanEveryTwoSeconds(t *testing.T) {
 	// Two seconds on, it follows.
 	if got := menuTitle(running(4<<20, 4<<20), first, t0, t0.Add(2*time.Second)); got != "4.00 MB/s" {
 		t.Errorf("after two seconds: %q", got)
+	}
+}
+
+func TestRulesTextIsColoredByWhatEachWordIs(t *testing.T) {
+	kinds := func(line string) map[string]editor.TokenKind {
+		toks, _ := tokenizeRules(line, 0, nil)
+		got, from := map[string]editor.TokenKind{}, 0
+		for _, k := range toks {
+			got[strings.TrimSpace(line[from:k.End])] = k.Kind
+			from = k.End
+		}
+		return got
+	}
+	g := kinds(`route uk region GB gate ipv4 # note`)
+	for word, want := range map[string]editor.TokenKind{
+		"route": editor.TokenKeyword, "uk": editor.TokenVariable, "region": editor.TokenKeyword,
+		"gate": editor.TokenConstant, "ipv4": editor.TokenConstant, "# note": editor.TokenComment,
+	} {
+		if g[word] != want {
+			t.Errorf("%q is kind %v, want %v (%v)", word, g[word], want, g)
+		}
+	}
+	g = kinds(`uk domain:a.com full:"b c"`)
+	if g["uk"] != editor.TokenFunction || g["domain"] != editor.TokenProperty || g["a.com"] != editor.TokenString {
+		t.Errorf("a rule line: %v", g)
+	}
+	if g := kinds(`regex#x # c`); g["regex#x"] != editor.TokenFunction || g["# c"] != editor.TokenComment {
+		t.Errorf("a # inside a word is not a comment: %v", g)
+	}
+}
+
+func TestRulesEditorKeepsTheTextAndMarksMistakes(t *testing.T) {
+	a := newTestApp(t)
+	a.rulesTab, a.rulesOpen = 1, true
+	a.rulesEdit = "route x region ZZ\nnope domain:a.com\n"
+	view(a, "规则").Click("应用")
+	view(a, "规则")
+	if got := a.rulesCode.Buffer.String(); got != a.rulesEdit {
+		t.Errorf("editor holds %q, text is %q", got, a.rulesEdit)
+	}
+	if n := len(a.rulesCode.Diagnostics()); n != 2 {
+		t.Errorf("%d mistakes marked, want 2", n)
+	}
+	a.rulesCode.Buffer.Set("direct domain:b.com\n") // typed in the editor
+	view(a, "规则")
+	if a.rulesEdit != "direct domain:b.com\n" {
+		t.Errorf("typing did not reach the text: %q", a.rulesEdit)
 	}
 }
