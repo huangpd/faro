@@ -1,0 +1,484 @@
+// Package rules reads the user's routing text and turns it into a plan:
+// which node groups the config needs, and which rules send what to them.
+//
+// The text is one statement a line, '#' starts a comment:
+//
+//	route work region UK gate ipv4     a group of the UK nodes, held on one node,
+//	                                   with a gate that can cut it, dialling IPv4
+//	route eu region DE fast            the same, on the fastest of them
+//	route mirror like work             the same node as another route, no gate of its own
+//	route work   regex "(?i)^corp"     nodes whose name matches
+//	work domain:example.com            send this to the route
+//	block udp domain:example.com       a flag and a matcher; UDP only
+//	work process:"Some Helper"         what a program on this Mac sends
+//	region EE name:estonia code:EE     a region of your own, or one replaced
+//	notice "(?i)expires"               names that are notices, not servers
+//	direct set:geosite-cn              direct, proxy, block and auto are built in
+//
+// A rule has a target, then flags (udp, tcp, ipv4, ipv6) and matchers
+// (kind:value) in any number; a rule with several matchers needs all of
+// them. A region route is strict: with no node in the region, what is sent
+// to it is rejected, never sent out another country's node.
+package rules
+
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// The built-in targets, and the prefix of the groups made for routes.
+const (
+	TargetProxy  = "proxy"
+	TargetAuto   = "auto"
+	TargetDirect = "direct"
+	TargetBlock  = "block"
+
+	GroupPrefix = "route-"
+
+	// GateTag is the choice that cuts a gated route: its group may be put on
+	// it, and nothing then goes out.
+	GateTag = "block"
+	// GateSuffix is added to a route's id to keep whether its gate is closed
+	// among the user's choices.
+	GateSuffix = "#gate"
+)
+
+// Route is a named group of nodes.
+type Route struct {
+	ID    string
+	Kind  string // "region", "regex" or "like"
+	Arg   string // the region id, the regular expression, or the route followed
+	Fast  bool   // follow the fastest node, rather than hold one
+	Gate  bool   // the group has a way to cut it: GateTag
+	IPv4  bool   // its nodes dial IPv4 only
+	Like  string // the route whose node this one uses, for Kind "like"
+	Line  int
+	Nodes []string
+	// Chosen is the node the group is on, "" for the fastest of a Fast
+	// route. Warn says why not the one the user picked, when that is gone.
+	Chosen string
+	Warn   string
+	// Closed is set when the gate is shut: the group is on GateTag.
+	Closed bool
+}
+
+// Group is the tag of the selector the route becomes.
+func (r Route) Group() string { return GroupPrefix + r.ID }
+
+// Matcher is one condition of a rule.
+type Matcher struct {
+	Kind   string // domain_suffix, domain, domain_keyword, domain_regex, ip_cidr, rule_set, rule_set_ip, process_name, process_path_regex or port
+	Values []string
+}
+
+// Rule sends what it matches to Target: a built-in, or a route's group. All
+// its matchers, and its flags, must hold.
+type Rule struct {
+	Target    string // an outbound tag, or TargetBlock
+	Network   string // "udp", "tcp", or "" for either
+	IPVersion int    // 4, 6, or 0
+	Matchers  []Matcher
+	Line      int
+}
+
+// Plan is what the text says, with the nodes taken into account.
+type Plan struct {
+	Routes   []Route
+	Rules    []Rule
+	Warnings []string
+
+	defs *defs // regions and notices, as the text and the built-in data define them
+}
+
+// UsesProcess reports whether a rule looks at the program a connection
+// comes from, which the core must then find out.
+func (p *Plan) UsesProcess() bool {
+	for _, r := range p.Rules {
+		for _, m := range r.Matchers {
+			if m.Kind == "process_name" || m.Kind == "process_path_regex" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Error is a mistake in the text, with its line.
+type Error struct {
+	Line int
+	Msg  string
+}
+
+func (e Error) Error() string { return fmt.Sprintf("line %d: %s", e.Line, e.Msg) }
+
+var idRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
+
+var matcherKinds = map[string]string{
+	"domain": "domain_suffix", "full": "domain", "keyword": "domain_keyword",
+	"regex": "domain_regex", "cidr": "ip_cidr", "set": "rule_set",
+	"process": "process_name", "path": "process_path_regex", "port": "port",
+}
+
+const kindList = "domain, full, keyword, regex, cidr, set, process, path, port"
+
+// fields splits a line at spaces, except inside double quotes, which are
+// dropped: process:"Some Helper (GPU)" is one field.
+func fields(line string) []string {
+	var out []string
+	var cur strings.Builder
+	in, started := false, false
+	for _, r := range line {
+		switch {
+		case r == '"':
+			in, started = !in, true
+		case (r == ' ' || r == '\t' || r == '\r') && !in:
+			if started {
+				out = append(out, cur.String())
+				cur.Reset()
+				started = false
+			}
+		default:
+			cur.WriteRune(r)
+			started = true
+		}
+	}
+	if started {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// stripComment drops a '#' comment: one at the start of the line or after a
+// space. A '#' inside a word (a regular expression's, a URL's) stays.
+func stripComment(line string) string {
+	in := false
+	for i, r := range line {
+		switch {
+		case r == '"':
+			in = !in
+		case r == '#' && !in && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// CompileWith is Compile for a text that has other rules before it (head), as
+// the person's groups of sites. Lines are counted in the text, not in head: a
+// line of head is at 0 or less, so that the person's own lines keep their numbers.
+func CompileWith(head, text string, tags []string, choices map[string]string) (*Plan, []Error) {
+	if head == "" {
+		return Compile(text, tags, choices)
+	}
+	if !strings.HasSuffix(head, "\n") {
+		head += "\n"
+	}
+	off := strings.Count(head, "\n")
+	p, errs := Compile(head+text, tags, choices)
+	for i := range errs {
+		errs[i].Line -= off
+	}
+	if p != nil {
+		for i := range p.Rules {
+			p.Rules[i].Line -= off
+		}
+		for i := range p.Routes {
+			p.Routes[i].Line -= off
+		}
+	}
+	return p, errs
+}
+
+// Compile reads the text against the node tags. choices holds the node the
+// user picked for each route, by route id, and which gates are shut.
+func Compile(text string, tags []string, choices map[string]string) (*Plan, []Error) {
+	d := builtin.clone()
+	p := &Plan{defs: d}
+	var errs []Error
+	routes := map[string]*Route{}
+	var order []string
+	type pending struct {
+		line int
+		rule Rule
+	}
+	var lines []pending
+
+	for i, raw := range strings.Split(text, "\n") {
+		n := i + 1
+		f := fields(stripComment(raw))
+		if len(f) == 0 {
+			continue
+		}
+		if handled, err := d.apply(f); handled {
+			if err != "" {
+				errs = append(errs, Error{n, err})
+			}
+			continue
+		}
+		if f[0] == "route" {
+			r, err := parseRoute(f[1:], routes, d)
+			if err != "" {
+				errs = append(errs, Error{n, err})
+				continue
+			}
+			r.Line = n
+			routes[r.ID] = r
+			order = append(order, r.ID)
+			continue
+		}
+		rule, err := parseRule(f, n)
+		if err != "" {
+			errs = append(errs, Error{n, err})
+			continue
+		}
+		lines = append(lines, pending{n, rule})
+	}
+
+	// A route that follows another must name one that exists, and not
+	// another follower.
+	for _, id := range order {
+		r := routes[id]
+		if r.Kind != "like" {
+			continue
+		}
+		lead := routes[r.Like]
+		switch {
+		case lead == nil:
+			errs = append(errs, Error{r.Line, fmt.Sprintf("route %s: follows %q, which is not defined", id, r.Like)})
+		case lead.Kind == "like":
+			errs = append(errs, Error{r.Line, fmt.Sprintf("route %s: %q follows another route; follow that one instead", id, r.Like)})
+		}
+	}
+
+	// The routes, with their nodes: leaders first, then those that follow.
+	sort.Strings(order)
+	for _, id := range order {
+		r := routes[id]
+		if r.Kind == "like" {
+			continue
+		}
+		r.Nodes = match(r, tags, d)
+		r.Chosen, r.Warn = pick(r, choices[id])
+	}
+	for _, id := range order {
+		r := routes[id]
+		if r.Kind != "like" {
+			continue
+		}
+		if lead := routes[r.Like]; lead != nil && lead.Kind != "like" {
+			r.Nodes, r.Chosen, r.Warn, r.Fast = lead.Nodes, lead.Chosen, lead.Warn, lead.Fast
+		}
+	}
+	for _, id := range order {
+		r := routes[id]
+		r.Closed = r.Gate && choices[id+GateSuffix] == "closed"
+		switch {
+		case len(r.Nodes) == 0:
+			p.Warnings = append(p.Warnings, fmt.Sprintf("route %s: no node matches %s, so what is sent to it is blocked", id, r.describe()))
+		case r.Warn != "" && r.Kind != "like":
+			p.Warnings = append(p.Warnings, fmt.Sprintf("route %s: %s", id, r.Warn))
+		}
+		if r.Closed {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("route %s: gate is closed, so what is sent to it is blocked", id))
+		}
+		p.Routes = append(p.Routes, *r)
+	}
+
+	// The rules; neighbours that differ only in one matcher's values share a rule.
+	for _, l := range lines {
+		rule := l.rule
+		switch rule.Target {
+		case TargetProxy, TargetAuto, TargetDirect, TargetBlock:
+		default:
+			r, ok := routes[rule.Target]
+			if !ok {
+				errs = append(errs, Error{l.line, fmt.Sprintf("unknown route %q: define it with a route line", rule.Target)})
+				continue
+			}
+			if len(r.Nodes) == 0 {
+				rule.Target = TargetBlock // strict: no node in the region, no way out
+			} else {
+				rule.Target = r.Group()
+			}
+		}
+		if n := len(p.Rules); n > 0 && mergeable(p.Rules[n-1], rule) {
+			p.Rules[n-1].Matchers[0].Values = append(p.Rules[n-1].Matchers[0].Values, rule.Matchers[0].Values...)
+			continue
+		}
+		p.Rules = append(p.Rules, rule)
+	}
+	if len(errs) > 0 {
+		sort.SliceStable(errs, func(i, j int) bool { return errs[i].Line < errs[j].Line })
+		return nil, errs
+	}
+	return p, nil
+}
+
+func mergeable(a, b Rule) bool {
+	return a.Target == b.Target && a.Network == b.Network && a.IPVersion == b.IPVersion &&
+		len(a.Matchers) == 1 && len(b.Matchers) == 1 && a.Matchers[0].Kind == b.Matchers[0].Kind
+}
+
+func (r Route) describe() string {
+	if r.Kind == "like" {
+		return "what " + r.Like + " uses"
+	}
+	return r.Arg
+}
+
+func parseRule(f []string, line int) (Rule, string) {
+	r := Rule{Target: f[0], Line: line}
+	for _, tok := range f[1:] {
+		switch tok {
+		case "udp", "tcp":
+			r.Network = tok
+			continue
+		case "ipv4":
+			r.IPVersion = 4
+			continue
+		case "ipv6":
+			r.IPVersion = 6
+			continue
+		}
+		kind, val, ok := strings.Cut(tok, ":")
+		sk, known := matcherKinds[kind]
+		if !ok || !known || val == "" {
+			return r, fmt.Sprintf("%q: expected a flag (udp, tcp, ipv4, ipv6) or <kind>:<value>, kind being one of %s", tok, kindList)
+		}
+		switch kind {
+		case "regex", "path":
+			if _, err := regexp.Compile(val); err != nil {
+				return r, "bad regular expression: " + err.Error()
+			}
+		case "port":
+			if n, err := strconv.Atoi(val); err != nil || n < 1 || n > 65535 {
+				return r, fmt.Sprintf("bad port %q", val)
+			}
+		case "cidr":
+			if !strings.Contains(val, "/") && !strings.Contains(val, ".") && !strings.Contains(val, ":") {
+				return r, fmt.Sprintf("bad address range %q", val)
+			}
+		case "set":
+			if strings.HasPrefix(val, "geoip-") {
+				sk = "rule_set_ip" // matches on addresses: the name is resolved first
+			}
+		}
+		// The same kind again means "or": process:a process:b is either program.
+		merged := false
+		for i := range r.Matchers {
+			if r.Matchers[i].Kind == sk {
+				r.Matchers[i].Values = append(r.Matchers[i].Values, val)
+				merged = true
+			}
+		}
+		if !merged {
+			r.Matchers = append(r.Matchers, Matcher{sk, []string{val}})
+		}
+	}
+	if len(r.Matchers) == 0 {
+		return r, "expected: <route> [flags] <kind>:<value>"
+	}
+	kinds := map[string]bool{}
+	for _, m := range r.Matchers {
+		kinds[m.Kind] = true
+	}
+	if kinds["rule_set"] && kinds["rule_set_ip"] {
+		return r, "a rule cannot take both a geoip- set and another set: write two rules"
+	}
+	return r, ""
+}
+
+func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
+	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4]  |  route <id> regex <expression> [...]  |  route <id> like <route>"
+	if len(f) < 3 {
+		return nil, usage
+	}
+	id := f[0]
+	switch {
+	case !idRe.MatchString(id):
+		return nil, fmt.Sprintf("route id %q: use lower-case letters, digits and '-', starting with a letter", id)
+	case id == TargetProxy || id == TargetAuto || id == TargetDirect || id == TargetBlock:
+		return nil, fmt.Sprintf("%q is built in", id)
+	case have[id] != nil:
+		return nil, fmt.Sprintf("route %q is defined twice", id)
+	}
+	r := &Route{ID: id, Kind: f[1]}
+	switch f[1] {
+	case "region":
+		if d.regions[strings.ToUpper(f[2])] == nil {
+			return nil, fmt.Sprintf("unknown region %q; known: %s (define one with: region <ID> name:<text> ...)", f[2], strings.Join(d.regionIDs(), " "))
+		}
+		r.Arg = strings.ToUpper(f[2])
+	case "regex":
+		r.Arg = f[2]
+		if _, err := regexp.Compile(r.Arg); err != nil {
+			return nil, "bad regular expression: " + err.Error()
+		}
+	case "like":
+		r.Like, r.Arg = f[2], f[2]
+		if r.Like == id {
+			return nil, "a route cannot follow itself"
+		}
+	default:
+		return nil, fmt.Sprintf("route kind %q: use region, regex or like", f[1])
+	}
+	for _, mod := range f[3:] {
+		switch mod {
+		case "fast":
+			if r.Kind == "like" {
+				return nil, "a route that follows another goes where it goes: no 'fast'"
+			}
+			r.Fast = true
+		case "gate":
+			r.Gate = true
+		case "ipv4":
+			r.IPv4 = true
+		default:
+			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4", mod)
+		}
+	}
+	return r, ""
+}
+
+// match returns the route's nodes, in a stable order.
+func match(r *Route, tags []string, d *defs) []string {
+	var re *regexp.Regexp
+	if r.Kind == "regex" {
+		re = regexp.MustCompile(r.Arg)
+	}
+	var out []string
+	for _, t := range tags {
+		if d.isNotice(t) {
+			continue
+		}
+		if (r.Kind == "region" && d.inRegion(t, r.Arg)) || (re != nil && re.MatchString(t)) {
+			out = append(out, t)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// pick is the node the group is on: the one the user chose, if it is still
+// a node of the route; if it is gone, the first, with a warning so that the
+// change of exit is seen.
+func pick(r *Route, want string) (chosen, warn string) {
+	if len(r.Nodes) == 0 {
+		return "", ""
+	}
+	if want == "" {
+		if r.Fast {
+			return "", "" // the fastest of them
+		}
+		return r.Nodes[0], ""
+	}
+	for _, n := range r.Nodes {
+		if n == want {
+			return want, ""
+		}
+	}
+	return r.Nodes[0], fmt.Sprintf("the node you picked, %q, is gone; now on %q", want, r.Nodes[0])
+}

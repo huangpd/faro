@@ -1,0 +1,13 @@
+/build/
+/.mygo/
+mygo_windows_*.syso
+/bin/
+/resources/darwin-*/bin/
+/resources/licenses/sing-box-LICENSE.txt
+/resources/rulesets/
+
+# built programs, and the design references the person keeps for themselves
+/faro
+/subcheck
+/file/
+.DS_Store

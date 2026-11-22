@@ -1,0 +1,49 @@
+# preset: AI 账号
+# about: 让对地区敏感的账号固定在一个出口：Claude 走英国节点并带熔断门，OpenAI 跟随同一节点，整个 Google 走德国节点；到 Claude 的 UDP 和 IPv6 一律阻断。
+
+route claude region UK gate ipv4
+route openai like claude
+route google region DE
+
+# ---- Claude: never by UDP (QUIC), never by IPv6 -----------------------------
+block udp domain:anthropic.com domain:claude.ai domain:claude.com domain:claudeusercontent.com keyword:anthropic
+block udp cidr:160.79.104.0/21
+block udp process:Claude process:"Claude Helper" process:"Claude Helper (GPU)" process:"Claude Helper (Renderer)" process:"Claude Helper (Plugin)" process:claude process:claude.exe
+block udp path:/\.local/share/claude/versions/
+# Browsers: no QUIC, so a browser's Claude falls back to TCP through the route.
+block udp port:443 path:"Google Chrome\.app" path:"Microsoft Edge\.app" path:"Brave Browser\.app" path:/Arc\.app/
+block ipv6 domain:anthropic.com domain:claude.ai domain:claude.com domain:clau.de domain:claudeusercontent.com
+block ipv6 process:claude process:Claude process:"Claude Helper"
+block ipv6 cidr:2607:6bc0::/32
+
+# ---- Claude: the app, the command line, and the domains --------------------
+claude process:Claude process:"Claude Helper" process:"Claude Helper (GPU)" process:"Claude Helper (Renderer)" process:"Claude Helper (Plugin)" process:claude process:claude.exe
+claude path:/\.local/share/claude/versions/
+claude full:servd-anthropic-website.b-cdn.net full:anthropic.com.cdn.cloudflare.net full:anthropic.auth0.com full:anthropic-com.ghost.io
+claude full:browser-intake-us5-datadoghq.com full:cdn.usefathom.com domain:withpersona.com domain:frompersona.com
+claude domain:anthropic.com domain:anthropic.ai domain:claude.ai domain:claude.com domain:clau.de
+claude domain:claudemcpclient.com domain:claudemcpcontent.com domain:claudeusercontent.com domain:claudeusercontent.net
+claude domain:sentry.io domain:statsigapi.net domain:intercom.io domain:intercomcdn.com domain:http-intake.logs.us5.datadoghq.com
+claude keyword:datadog keyword:sift keyword:sentry
+claude cidr:160.79.104.0/21
+claude set:geosite-anthropic
+
+# ---- OpenAI, Codex, ChatGPT: the same node as Claude, without its gate ------
+openai process:codex
+openai full:api.ipify.org full:api-ipv4.ip.sb full:v4.ident.me
+openai full:openai-api.arkoselabs.com full:openai.com.cdn.cloudflare.net full:openaicom.imgix.net full:openaiapi-site.azureedge.net
+openai full:production-openaicom-storage.azureedge.net full:openaicomproductionae4b.blob.core.windows.net
+openai full:openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net full:o33249.ingest.sentry.io full:browser-intake-datadoghq.com
+openai domain:openai.com domain:chatgpt.com domain:chat.com domain:sora.com domain:oaistatic.com domain:oaiusercontent.com domain:crixet.com
+openai domain:client-api.arkoselabs.com domain:chatgpt.livekit.cloud domain:host.livekit.cloud domain:turn.livekit.cloud domain:webpubsub.azure.com
+openai set:geosite-openai
+
+# ---- Google, Gemini, Antigravity: all of Google leaves from Germany --------
+google domain:google.com domain:google.de domain:google.co.uk domain:googleapis.com domain:googleusercontent.com
+google domain:gstatic.com domain:gvt1.com domain:gvt2.com domain:ggpht.com domain:ytimg.com domain:googleadservices.com
+google domain:googlesyndication.com domain:doubleclick.net domain:google-analytics.com domain:googletagmanager.com
+google domain:recaptcha.net domain:antigravity.google domain:gemini.google
+google set:geosite-google
+
+# ---- General: what is in China goes direct ---------------------------------
+direct set:geosite-cn

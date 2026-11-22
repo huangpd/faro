@@ -1,0 +1,25 @@
+# preset: 基础
+# about: 私有网络和中国大陆直连，其余流量走主出口。
+
+# One statement a line; '#' starts a comment.
+#
+#   route <id> region <XX> [fast] [gate] [ipv4]   nodes of a country, held on ONE node
+#                                                  fast  follow the fastest instead
+#                                                  gate  add a switch that cuts the route
+#                                                  ipv4  its nodes dial IPv4 only
+#   route <id> like <route>                        the same node as another route
+#   route <id> regex "<expression>"                nodes whose name matches
+#
+#   <target> [flags] <kind>:<value> ...            target: a route, proxy, auto, direct, block
+#     flags: udp tcp ipv4 ipv6                     kinds: domain full keyword regex cidr set
+#     the same kind again means "or";                     process path port
+#     different kinds all have to match
+#
+#   region <ID> name:<text> code:<XX> flag:<emoji> ...   a region of your own
+#   notice "<regex>"                                     names that are notices, not servers
+#
+# A region route is strict: with no node in the region, what is sent to it is
+# blocked, never sent out another country's node. Rules run top to bottom and
+# the first that matches wins. Private addresses go direct before all of them.
+
+direct set:geosite-cn

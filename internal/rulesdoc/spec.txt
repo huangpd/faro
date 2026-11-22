@@ -1,0 +1,101 @@
+# The Faro rules language
+
+Faro routes network traffic. The user writes rules as plain text, one statement
+per line; Faro turns them into a sing-box configuration. This is NOT the sing-box
+JSON format and NOT the Clash format: do not write either of those.
+
+A '#' starts a comment (at the start of a line or after a space). Blank lines are
+ignored. Values with spaces go in double quotes: process:"Some Helper".
+
+## Routes: groups of nodes that a rule can send traffic to
+
+    route <id> region <XX> [fast] [gate] [ipv4]
+    route <id> regex "<expression>" [fast] [gate] [ipv4]
+    route <id> like <other-route>
+
+- <id>: lower-case letters, digits and '-', starting with a letter. Not one of
+  proxy, auto, direct, block (those are built in).
+- region <XX>: the nodes whose names say they are in that country. Known regions
+  are listed in the context below; a new one is defined with
+  `region <ID> flag:<emoji> name:<text> code:<XX>` (several name:/code: allowed).
+- regex "<expression>": the nodes whose name matches a regular expression.
+- like <other-route>: the same node as another route (chosen together with it),
+  but without a gate of its own.
+- A route is held on ONE node, so that the exit address stays the same. `fast`
+  makes it follow the fastest node of the group instead.
+- `gate` adds a switch the user can flip to cut the route: while cut, nothing sent
+  to it goes out.
+- `ipv4` makes the route's nodes dial IPv4 only.
+- A route is strict: if no node matches, what is sent to it is BLOCKED, never sent
+  out through another country's node. Do not add fallbacks.
+
+## Rules: where traffic goes
+
+    <target> [flags] <kind>:<value> [<kind>:<value> ...]
+
+- <target>: a route id, or one of: proxy (the main group), auto (the fastest of
+  all nodes), direct, block.
+- flags (any number): udp, tcp (only that transport), ipv4, ipv6 (only addresses
+  of that version).
+- kinds:
+  - domain:example.com    the domain and all its subdomains
+  - full:www.example.com  exactly this name
+  - keyword:example       any name containing the text
+  - regex:^cdn[0-9]+\.example\.com$   a regular expression on the name
+  - cidr:203.0.113.0/24   an address range (IPv4 or IPv6)
+  - set:<name>            a rule set. ONLY the names listed under "Rule sets" in the
+                          context below exist; never invent one. A name starting with
+                          geoip- matches addresses, the others match domain names, and
+                          the two cannot be on one line.
+  - process:Name          a program on this Mac, by its name
+  - path:<regex>          a program, by a regular expression on its path
+  - port:443              a destination port
+- The same kind repeated on one line means "or": domain:a.com domain:b.com is
+  either. Different kinds on one line must ALL match (an "and").
+- Neighbouring lines with the same target, flags and kind are merged.
+- Rules run top to bottom; the FIRST that matches decides. Put specific rules
+  before general ones. Private addresses always go direct before any rule.
+- Anything no rule matches goes to the main group (proxy).
+
+## Examples
+
+A route for one service, held on a UK node, with a gate that can cut it:
+
+    route work region UK gate
+    work domain:example.com domain:example.org
+    work keyword:examplecdn
+
+A service from Germany, on the fastest German node, over IPv4 only:
+
+    route streaming region DE fast ipv4
+    streaming domain:stream.example.com domain:cdn.stream.example.com
+
+A second service that uses the same node as the first, without its own gate:
+
+    route mirror like work
+    mirror domain:mirror.example.com
+
+Block QUIC (UDP) to a service, and a program's traffic from this Mac:
+
+    block udp domain:example.com
+    work process:"Some Helper" process:tool
+
+A browser's UDP on port 443 blocked, by the program's path:
+
+    block udp port:443 path:"Some Browser\.app"
+
+What is inside a country goes direct, and one site always goes direct:
+
+    direct domain:intranet.example.com
+    direct set:geosite-cn
+
+A region of the user's own, and a route that uses it:
+
+    region PL flag:🇵🇱 name:poland name:warsaw code:PL
+    route poland region PL
+    poland domain:example.pl
+
+Nodes picked by name instead of country:
+
+    route lab regex "(?i)^lab-"
+    lab domain:lab.example.com

@@ -1,0 +1,31 @@
+# Built-in definitions. The order of the region lines is the order regions are
+# listed in. They are data, not code: the same statements work in
+# the user's own rules, where a region with the same id replaces this one and a
+# notice adds to these.
+#
+# region <ID> [flag:<emoji>] [name:<text>] [code:<XX>] ...
+#   flag  an emoji flag in a node's name
+#   name  a full name, matched anywhere in the name, ignoring case
+#   code  a short code, matched only as a whole upper-case word, so that "UK"
+#         never matches Ukraine, nor "GB" a "100GB" quota
+# notice <regex>
+#   a node whose name matches is a notice (usage, expiry), not a server
+
+region HK flag:🇭🇰 name:"hong kong" name:hongkong name:香港 code:HK
+region JP flag:🇯🇵 name:japan name:tokyo name:osaka name:日本 name:东京 name:大阪 code:JP
+region SG flag:🇸🇬 name:singapore name:新加坡 name:狮城 code:SG
+region TW flag:🇹🇼 name:taiwan name:taipei name:台湾 name:台北 code:TW
+region KR flag:🇰🇷 name:korea name:seoul name:韩国 name:首尔 code:KR
+region US flag:🇺🇸 name:"united states" name:america name:"los angeles" name:"san jose" name:seattle name:"new york" name:美国 name:洛杉矶 name:圣何塞 name:西雅图 name:纽约 code:US code:USA
+region UK flag:🇬🇧 name:"united kingdom" name:britain name:england name:london name:manchester name:英国 name:伦敦 code:UK code:GB
+region DE flag:🇩🇪 name:germany name:frankfurt name:berlin name:munich name:德国 name:法兰克福 name:柏林 code:DE
+region NL flag:🇳🇱 name:netherlands name:amsterdam name:荷兰 name:阿姆斯特丹 code:NL
+region FR flag:🇫🇷 name:france name:paris name:法国 name:巴黎 code:FR
+region CA flag:🇨🇦 name:canada name:toronto name:vancouver name:加拿大 name:多伦多 code:CA
+region AU flag:🇦🇺 name:australia name:sydney name:澳大利亚 name:澳洲 name:悉尼 code:AU
+region EE flag:🇪🇪 name:estonia name:tallinn name:爱沙尼亚 code:EE
+
+# Providers list usage, expiry and notices as if they were servers. These name
+# what such a node says, not a bare word: "流量" alone also sits in the name of a
+# real node ("英国-UK-1-流量倍率:0.9", a traffic multiplier), which must stay one.
+notice "(?i)剩余|到期|过期|套餐|官网|重置|距离|订阅|公告|客服|访问受限|(已用|总|用尽)流量|流量(剩余|已用|用尽|不足|耗尽|重置)|流量\s*[:：]\s*[0-9]|expire|remaining|reset|data left|traffic\s*[:：]\s*[0-9]|website|telegram"

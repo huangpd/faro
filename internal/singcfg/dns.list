@@ -1,0 +1,15 @@
+# DNS servers Faro can use, over HTTPS (encrypted: the network cannot read the
+# names asked). One a line:  <side> <id> <address> <tls name> <label>
+#
+#   domestic  asked directly, for names that are in China (and for the addresses
+#             of the proxy servers themselves)
+#   foreign   asked THROUGH the proxy, for every other name, so that what is looked
+#             up never leaves this Mac in the clear and is never answered by a
+#             resolver inside China
+#
+# The addresses are IPs, so that no name has to be looked up to look names up.
+# Each was tried before it was listed; one that stops answering is replaced here.
+domestic alidns   223.5.5.5       dns.alidns.com          阿里 AliDNS
+domestic dnspod   120.53.53.53    doh.pub                 腾讯 DNSPod
+foreign  cloudflare 1.1.1.1       cloudflare-dns.com      Cloudflare
+foreign  google   8.8.8.8         dns.google              Google

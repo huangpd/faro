@@ -1,0 +1,11 @@
+This app bundles sing-box (Resources/bin/sing-box), an unmodified release
+build of https://github.com/SagerNet/sing-box, which is free software under
+the GNU General Public License v3 or later, with the additional term in
+sing-box-LICENSE.txt. It runs as a separate program that this app starts and
+controls through its local API.
+
+The version bundled is the one named by SINGBOX_VERSION in
+scripts/fetch-singbox.sh. Its complete corresponding source is at
+https://github.com/SagerNet/sing-box (tag v<version>).
+
+This app is not made by, and is not endorsed by, the sing-box authors.

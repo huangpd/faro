@@ -1,0 +1,11 @@
+# repository  rule set
+# The rule sets that can be fetched: SagerNet's sing-geosite and sing-geoip,
+# branch rule-set. A rule says set:<name>.
+sing-geosite geosite-cn
+sing-geosite geosite-anthropic
+sing-geosite geosite-google-gemini
+sing-geosite geosite-openai
+sing-geosite geosite-google
+sing-geosite geosite-xai
+sing-geosite geosite-category-ads-all
+sing-geoip   geoip-cn

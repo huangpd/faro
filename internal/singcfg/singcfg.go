@@ -1,0 +1,308 @@
+// Package singcfg builds the sing-box configuration. Keep it to fields
+// sing-box 1.14 accepts: the 1.11–1.13 releases removed the legacy inbound
+// `sniff` options and the special block/dns outbounds.
+package singcfg
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net"
+	"strconv"
+
+	"faro/internal/rules"
+)
+
+// Settings are what one run of the core needs.
+type Settings struct {
+	MixedPort int    // local HTTP+SOCKS inbound on 127.0.0.1
+	APIPort   int    // Clash API controller on 127.0.0.1
+	Secret    string // bearer token for the controller
+}
+
+// NewSettings makes the settings of a run. mixed is the port of the proxy
+// the user's tools are pointed at, so it must not change from run to run:
+// 0 picks a free one, and a port that is taken is an error, not a reason to
+// move. The controller's port and secret are new every time.
+func NewSettings(mixed int) (Settings, error) {
+	if mixed == 0 {
+		var err error
+		if mixed, err = freePort(); err != nil {
+			return Settings{}, err
+		}
+	} else if err := portFree(mixed); err != nil {
+		return Settings{}, err
+	}
+	api, err := freePort()
+	if err != nil {
+		return Settings{}, err
+	}
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return Settings{}, err
+	}
+	return Settings{MixedPort: mixed, APIPort: api, Secret: hex.EncodeToString(b)}, nil
+}
+
+// CheckPort says whether a port can be taken on this machine now.
+func CheckPort(port int) error { return portFree(port) }
+
+func portFree(port int) error {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return fmt.Errorf("port %d is in use (another proxy client?): %w", port, err)
+	}
+	return l.Close()
+}
+
+func freePort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// ProbeURL is what nodes are tested against. It is the host of no service
+// whose account is tied to a location: a test through one country's node must
+// not be a request that such a service sees from there.
+const ProbeURL = "https://cp.cloudflare.com/generate_204"
+
+// cnRuleSet is the rule set that tells names in China: what the DNS asks the
+// domestic server for. It is the one the base rules send direct.
+const cnRuleSet = "geosite-cn"
+
+// Tags of the groups every config has. Node tags never use them.
+const (
+	TagProxy  = "proxy" // the selector the user picks a node in
+	TagAuto   = "auto"  // the url-test group: fastest, with failover
+	TagDirect = "direct"
+)
+
+// Outbound is a node ready for the config: its tag and sing-box outbound.
+type Outbound struct {
+	Tag string
+	Out map[string]any
+}
+
+// Input is what the config is made of.
+type Input struct {
+	Nodes []Outbound
+	// Plan is the routing text compiled; nil goes straight to the main group.
+	Plan *rules.Plan
+	// Choices is the node of each route, "proxy" for the main group.
+	Choices map[string]string
+	// Sets maps a rule set's name to its file; one not here is left out.
+	Sets map[string]string
+	// DNS is which servers resolve names; empty is the first of each side.
+	DNS DNSChoice
+}
+
+// Build returns the config JSON, and notes on what it had to leave out.
+// With no nodes it only goes direct; with nodes, traffic goes by the plan's
+// rules, and what they do not match goes to the "proxy" selector, whose
+// first choice is the automatic group, except for private addresses.
+func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
+	nodes := in.Nodes
+	outbounds := []any{map[string]any{"type": "direct", "tag": TagDirect}}
+	final := TagDirect
+	var routeRules []any
+	sets := map[string]any{}
+	findProcess := false
+
+	if len(nodes) > 0 {
+		// Nodes of an ipv4 route resolve the names they dial as IPv4 only.
+		ipv4 := map[string]bool{}
+		gated := false
+		if in.Plan != nil {
+			for _, r := range in.Plan.Routes {
+				for _, n := range r.Nodes {
+					ipv4[n] = ipv4[n] || r.IPv4
+				}
+				gated = gated || (r.Gate && len(r.Nodes) > 0)
+			}
+			findProcess = in.Plan.UsesProcess()
+		}
+		tags := make([]string, 0, len(nodes))
+		selected := in.Choices[TagProxy]
+		def := TagAuto
+		for _, n := range nodes {
+			o := map[string]any{"tag": n.Tag}
+			for k, v := range n.Out {
+				o[k] = v
+			}
+			if ipv4[n.Tag] && o["domain_resolver"] == nil {
+				o["domain_resolver"] = map[string]any{"server": "domestic", "strategy": "ipv4_only"}
+			}
+			outbounds = append(outbounds, o)
+			tags = append(tags, n.Tag)
+			if n.Tag == selected {
+				def = selected
+			}
+		}
+		// The fastest-of group leaves out the notices providers list as nodes
+		// ("剩余 45 GB"): they answer, but are not servers to send traffic through.
+		autoTags := make([]string, 0, len(tags))
+		for _, t := range tags {
+			if !in.Plan.IsNotice(t) { // a nil plan uses the built-in patterns
+				autoTags = append(autoTags, t)
+			}
+		}
+		if len(autoTags) == 0 {
+			autoTags = tags
+		}
+		outbounds = append(outbounds,
+			map[string]any{"type": "urltest", "tag": TagAuto, "outbounds": autoTags,
+				"url": ProbeURL, "interval": "10m", "idle_timeout": "30m"},
+			map[string]any{"type": "selector", "tag": TagProxy, "outbounds": append([]string{TagAuto}, tags...), "default": def},
+		)
+		final = TagProxy
+		if gated {
+			// What a closed gate points at: connections to it end at once.
+			outbounds = append(outbounds, map[string]any{"type": "block", "tag": rules.GateTag})
+		}
+
+		if in.Plan != nil {
+			for _, r := range in.Plan.Routes {
+				if len(r.Nodes) == 0 {
+					continue // its rules were turned into blocks
+				}
+				choices := append([]string{}, r.Nodes...)
+				def := r.Chosen
+				if r.Fast {
+					fast := r.Group() + "-fast"
+					outbounds = append(outbounds, map[string]any{"type": "urltest", "tag": fast, "outbounds": r.Nodes,
+						"url": ProbeURL, "interval": "10m", "idle_timeout": "30m"})
+					choices = append([]string{fast}, choices...)
+					if def == "" {
+						def = fast
+					}
+				}
+				if r.Gate {
+					choices = append(choices, rules.GateTag)
+					if r.Closed {
+						def = rules.GateTag
+					}
+				}
+				outbounds = append(outbounds, map[string]any{"type": "selector", "tag": r.Group(), "outbounds": choices, "default": def})
+			}
+		}
+	}
+
+	// sniff first, so rules on names see the name of a connection to an
+	// address; private addresses next; then the user's rules in order.
+	routeRules = append(routeRules,
+		map[string]any{"action": "sniff"},
+		map[string]any{"ip_is_private": true, "action": "route", "outbound": TagDirect},
+	)
+	if len(nodes) > 0 && in.Plan != nil {
+		resolved := false
+	rules:
+		for _, r := range in.Plan.Rules {
+			rule := map[string]any{}
+			needsResolve := false
+			for _, m := range r.Matchers {
+				switch m.Kind {
+				case "rule_set", "rule_set_ip":
+					var have []string
+					for _, name := range m.Values {
+						if path, ok := in.Sets[name]; ok {
+							sets[name] = map[string]any{"type": "local", "tag": name, "format": "binary", "path": path}
+							have = append(have, name)
+						} else {
+							notes = append(notes, fmt.Sprintf("line %d: rule set %q is not installed, rule skipped", r.Line, name))
+						}
+					}
+					// With other conditions, a set left out would widen the rule: skip it whole.
+					if len(have) == 0 || (len(have) < len(m.Values) && len(r.Matchers) > 1) {
+						continue rules
+					}
+					rule["rule_set"] = have
+					needsResolve = needsResolve || m.Kind == "rule_set_ip"
+				case "port":
+					var ports []int
+					for _, v := range m.Values {
+						n, _ := strconv.Atoi(v)
+						ports = append(ports, n)
+					}
+					rule["port"] = ports
+				default:
+					rule[m.Kind] = m.Values
+				}
+			}
+			if r.Network != "" {
+				rule["network"] = r.Network
+			}
+			if r.IPVersion != 0 {
+				rule["ip_version"] = r.IPVersion
+			}
+			if needsResolve && !resolved {
+				// Rules on addresses need the name resolved; do it only from here on, so
+				// what the rules above decide never goes through the local DNS.
+				routeRules = append(routeRules, map[string]any{"action": "resolve"})
+				resolved = true
+			}
+			switch r.Target {
+			case rules.TargetBlock:
+				rule["action"] = "reject"
+			default:
+				rule["action"], rule["outbound"] = "route", outboundTag(r.Target)
+			}
+			routeRules = append(routeRules, rule)
+		}
+	}
+
+	// DNS: names in China asked directly of a domestic server, the rest through the
+	// proxy. The rule set that tells names in China is the one the rules use for it.
+	cnSet := ""
+	if path, ok := in.Sets[cnRuleSet]; ok {
+		sets[cnRuleSet] = map[string]any{"type": "local", "tag": cnRuleSet, "format": "binary", "path": path}
+		cnSet = cnRuleSet
+	}
+	dnsSection, resolver, dnsNotes := dnsConfig(in.DNS, len(nodes) > 0, cnSet)
+	notes = append(notes, dnsNotes...)
+
+	var ruleSets []any
+	for _, v := range sets {
+		ruleSets = append(ruleSets, v)
+	}
+	route := map[string]any{"default_domain_resolver": resolver, "rules": routeRules, "final": final}
+	if len(ruleSets) > 0 {
+		route["rule_set"] = ruleSets
+	}
+	if findProcess {
+		route["find_process"] = true
+	}
+	c := map[string]any{
+		"log": map[string]any{"level": "info", "timestamp": true},
+		"dns": dnsSection,
+		"inbounds": []any{map[string]any{
+			"type": "mixed", "tag": "mixed-in",
+			"listen": "127.0.0.1", "listen_port": s.MixedPort,
+		}},
+		"outbounds": outbounds,
+		"route":     route,
+		"experimental": map[string]any{
+			"clash_api": map[string]any{
+				"external_controller": fmt.Sprintf("127.0.0.1:%d", s.APIPort),
+				"secret":              s.Secret,
+			},
+		},
+	}
+	cfg, err = json.MarshalIndent(c, "", "  ")
+	return cfg, notes, err
+}
+
+func outboundTag(target string) string {
+	switch target {
+	case rules.TargetProxy:
+		return TagProxy
+	case rules.TargetAuto:
+		return TagAuto
+	case rules.TargetDirect:
+		return TagDirect
+	}
+	return target // a route's group
+}
