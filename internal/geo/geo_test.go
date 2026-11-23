@@ -42,35 +42,46 @@ func TestPlaces(t *testing.T) {
 	}
 }
 
-func TestTheWorldIsTurnedToTheOriginAtTheLeft(t *testing.T) {
+func TestTheMapIsFramedTheSameWithTheOriginAtTheRight(t *testing.T) {
 	here, _ := Place("HK")
-	w := WorldFrom(here, 0.14)
+	w := WorldFrom(here, 0.78, 200)
 	x, _ := w.XY(here)
-	if math.Abs(x-0.14) > 1e-9 {
+	if math.Abs(x-0.78) > 1e-9 {
 		t.Errorf("the origin is at %v", x)
 	}
-	for _, p := range []Point{{0, -179.9}, {0, 179.9}, {60, 0}, {-30, 300 - 360}} {
-		if x, y := w.XY(p); x < 0 || x >= 1 || y < 0 || y > 1 {
-			t.Errorf("%v is off the map: %v,%v", p, x, y)
+	uk, _ := Place("UK")
+	de, _ := Place("DE")
+	jp, _ := Place("JP")
+	sg, _ := Place("SG")
+	us, _ := Place("US")
+	in := func(p Point) float64 { x, _ := w.XY(p); return x }
+	for name, p := range map[string]Point{"UK": uk, "DE": de, "JP": jp, "SG": sg} {
+		if x := in(p); x < 0.02 || x > 0.98 {
+			t.Errorf("%s is at %v: not on the map", name, x)
 		}
 	}
-	uk, _ := Place("UK")
-	us, _ := Place("US")
-	jp, _ := Place("JP")
-	if d := Way(here, uk); d > -0.3 || d < -0.36 { // west, over Asia and Europe: a third of the way round
-		t.Errorf("hong kong to the UK is %v of the map", d)
+	if !(in(uk) < in(de) && in(de) < in(here) && in(here) < in(jp)) {
+		t.Errorf("west to east: UK %v, DE %v, here %v, Japan %v", in(uk), in(de), in(here), in(jp))
 	}
-	if d := Way(here, us); d < 0.3 || d > 0.45 { // east, over the Pacific
-		t.Errorf("hong kong to the US is %v of the map", d)
+	if x := in(us); x <= 1 {
+		t.Errorf("the US is at %v: it is across the Pacific, off the map", x)
 	}
-	if Way(here, jp) <= 0 || Way(here, here) != 0 {
-		t.Error("Japan is east; here is nowhere from here")
+	// What is reached the short way: the UK is west, the US east.
+	if r := w.Reach(here, uk); r > -0.5 || r < -0.7 {
+		t.Errorf("the UK is %v widths away", r)
 	}
-	// The UK, west of the origin, is at the far right of the map.
-	if x, _ := w.XY(uk); x < 0.7 {
-		t.Errorf("the UK is at %v", x)
+	if r := w.Reach(here, us); r < 0.6 {
+		t.Errorf("the US is %v widths away", r)
 	}
-	// The top of the map is the north, and the poles' edges are at the edges.
+	if r := w.Reach(here, here); r != 0 {
+		t.Errorf("here is %v from here", r)
+	}
+	// The same place, either way, is the same place.
+	x1, _ := w.XY(Point{0, here.Lon + 180})
+	x2, _ := w.XY(Point{0, here.Lon - 180})
+	if math.Abs(x1-x2) > 1e-9 {
+		t.Errorf("the other side of the Earth is at %v and %v", x1, x2)
+	}
 	if _, y := w.XY(Point{Top, 0}); y != 0 {
 		t.Errorf("top %v", y)
 	}
@@ -80,7 +91,7 @@ func TestTheWorldIsTurnedToTheOriginAtTheLeft(t *testing.T) {
 }
 
 func TestCoarseLandKeepsTheShapeOfTheWorld(t *testing.T) {
-	if len(Coarse) < 400 || len(Coarse) > 1500 {
+	if len(Coarse) < 1200 || len(Coarse) > 4000 {
 		t.Errorf("%d coarse cells", len(Coarse))
 	}
 	has := func(lat, lon, within float64) bool {

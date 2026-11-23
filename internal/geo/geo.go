@@ -107,48 +107,48 @@ func ZoneOf(name string, now time.Time) (Point, bool) {
 	return Point{Lat: 35, Lon: float64(off) / 3600 * 15}, true
 }
 
-// The map is the whole world, turned so that the place it is made for is near
-// its left edge: east of there is to the right, and what is west of it comes
-// round and is at the far right. Every map is framed the same, so they can be
-// read against each other.
-type World struct{ L0 float64 }
+// The map is a part of the world a span of degrees wide, turned so that the
+// place it is made for is at a fixed place across it. Every map is framed the
+// same, so that they can be read against each other. A place outside it is past
+// 1 on the right, and what is west of its left edge is past 1 as well.
+type World struct{ L0, Span float64 }
 
 // Top and Bottom are the latitudes the map shows, from north to south.
 const (
-	Top    = 85.0
-	Bottom = -65.0
+	Top    = 70.0
+	Bottom = -32.0
 )
 
-// WorldFrom turns the world so that origin is x0 of the way from the left.
-func WorldFrom(origin Point, x0 float64) World {
-	return World{L0: origin.Lon - x0*360}
+// WorldFrom frames a span of degrees so that origin is x0 of the way from the left.
+func WorldFrom(origin Point, x0, span float64) World {
+	return World{L0: origin.Lon - x0*span, Span: span}
 }
 
-// XY places a point on the map: x from 0 at the left to 1 at the right, y from
-// 0 at the top to 1 at the bottom.
+// XY places a point on the map: x from 0 at the left to 1 at the right (more,
+// when it is off the map), y from 0 at the top to 1 at the bottom.
 func (w World) XY(p Point) (x, y float64) {
-	x = math.Mod(p.Lon-w.L0, 360) / 360
+	x = math.Mod(p.Lon-w.L0, 360) / w.Span
 	if x < 0 {
-		x++
+		x += 360 / w.Span
 	}
 	return x, (Top - p.Lat) / (Top - Bottom)
 }
 
-// Way is the shortest way from one place to another round the Earth as a
-// fraction of the map's width: positive going east, which is to the right.
-func Way(from, to Point) float64 {
+// Reach is how far from one place the other is across the map, the shortest way
+// round the Earth, in widths of the map: positive going east, which is to the right.
+func (w World) Reach(from, to Point) float64 {
 	d := math.Mod(to.Lon-from.Lon, 360)
 	if d > 180 {
 		d -= 360
 	} else if d < -180 {
 		d += 360
 	}
-	return d / 360
+	return d / w.Span
 }
 
-// Coarse is the land as a grid three times as coarse as Land, a cell of it
-// land where a third of its cells are: dots far enough apart for a small map.
-var Coarse = coarsen(landText, 3)
+// Coarse is the land as a grid twice as coarse as Land, a cell of it
+// land where half of its cells are: dots far enough apart for a small map.
+var Coarse = coarsen(landText, 2)
 
 func coarsen(text string, f int) []Point {
 	var rows []string
@@ -177,4 +177,4 @@ func coarsen(text string, f int) []Point {
 }
 
 // CoarseCell is the size of a cell of Coarse, in degrees.
-const CoarseCell = Cell * 3
+const CoarseCell = Cell * 2

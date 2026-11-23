@@ -19,9 +19,11 @@ import (
 // It is drawn from data in the app; nothing is looked up from the network.
 
 const (
-	mapW, mapH = 250, 104
-	// mapOrigin is how far from the left edge this Mac is, as a fraction of the width.
-	mapOrigin = 0.13
+	mapW, mapH = 220, 112
+	// The map shows mapSpan degrees of longitude: Europe at the left, this Mac at
+	// mapOrigin of the way across. A place beyond the right edge is marked at the edge.
+	mapSpan   = 200.0
+	mapOrigin = 0.78
 	// mapScale is how many pixels the still layer has to a DIP: enough for sharp dots
 	// on a screen that shows two.
 	mapScale = 2
@@ -67,7 +69,7 @@ func (a *app) laneMap(c *ui.Context, id string, hue ui.Color, exit *geo.Point, l
 }
 
 func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit *geo.Point, label string, hue ui.Color, mode mapMode) {
-	world := geo.WorldFrom(from, mapOrigin)
+	world := geo.WorldFrom(from, mapOrigin, mapSpan)
 	live := exit != nil && mode == mapLive
 
 	// A glow in the lane's hue, and the land under it: the land is the same for
@@ -119,21 +121,34 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 	running := phase < mapRunTime
 
 	_, ey := at(*exit)
-	ex := ax + float32(geo.Way(from, *exit))*r.W // not wrapped: past an edge, the arc goes on from the other
-	pts := mapArc(ax, ay, ex, ey, r.X, r.W, mapN)
-	for _, seg := range runsOf(pts, r.W) {
+	ey = min(max(ey, r.Y+6), r.Y+r.H-6)              // a place far south is at the bottom edge
+	ex := ax + float32(world.Reach(from, *exit))*r.W // may be past an edge
+	pts := mapArc(ax, ay, ex, ey, mapN)
+	for _, seg := range visibleRuns(pts, r.X, r.W) {
 		p.StrokePolyline(seg, 1.4, hue.Alpha(0.42))
 	}
 	dot(ax, ay, 2.8, a.k.text)
-	bx, by := pts[mapN][0], pts[mapN][1]
-	p.Stroke(ui.Rect{X: bx - 7, Y: by - 7, W: 14, H: 14}, hue.Alpha(0.4), 7, 1.2)
-	dot(bx, by, 3.4, hue)
-	if label != "" {
-		lx := bx + 10
-		if bx > r.X+r.W*0.7 { // not off the edge
-			lx = bx - 10 - 7*float32(len(label))
+	if ex >= r.X && ex <= r.X+r.W {
+		p.Stroke(ui.Rect{X: ex - 7, Y: ey - 7, W: 14, H: 14}, hue.Alpha(0.4), 7, 1.2)
+		dot(ex, ey, 3.4, hue)
+		if label != "" {
+			lx := ex + 10
+			if ex > r.X+r.W*0.7 { // not off the edge
+				lx = ex - 10 - 7*float32(len(label))
+			}
+			p.Text(lx, ey-6, label, 10, a.k.text2)
 		}
-		p.Text(lx, by-6, label, 10, a.k.text2)
+	} else if last := lastVisible(pts, r.X, r.W); last >= 0 && label != "" {
+		// Past the edge of the map: the arc runs off it, and the edge says where to.
+		text := label + " →"
+		if ex < r.X {
+			text = "← " + label
+		}
+		x := r.X + r.W - 8 - 7*float32(len(text))
+		if ex < r.X {
+			x = r.X + 8
+		}
+		p.Text(x, pts[last][1]-14, text, 10, hue)
 	}
 	if !running {
 		p.After(mapEvery - phase)
@@ -142,22 +157,22 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 	head := int(float64(phase) / float64(mapRunTime) * mapN)
 	for k, w := range []float32{1.8, 2.6} { // a tail that brightens toward the light
 		from := max(0, head-int(mapTail)*(2-k)/2)
-		for _, seg := range runsOf(pts[from:head+1], r.W) {
+		for _, seg := range visibleRuns(pts[from:head+1], r.X, r.W) {
 			p.StrokePolyline(seg, w, hue.Alpha(0.5+0.45*float32(k)))
 		}
 	}
-	hx, hy := pts[head][0], pts[head][1]
-	p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
-		Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0)}}}, 9)
-	dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
+	if hx, hy := pts[head][0], pts[head][1]; hx >= r.X && hx <= r.X+r.W {
+		p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
+			Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0)}}}, 9)
+		dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
+	}
 	p.AnimationFrameRate(15)
 }
 
 // mapArc is n+1 points of an arc from (ax, ay) to (ex, ey) that bows up from the
-// straight line between them, by a third of its length. An end past the edge of the
-// map, which is left to left+width, goes on from the other edge: the points are
-// put within the map, so that the arc leaves at one side and comes in at the other.
-func mapArc(ax, ay, ex, ey, left, width float32, n int) [][2]float32 {
+// straight line between them, by a third of its length. An end may be past the
+// edge of the map; what is visible is for visibleRuns to say.
+func mapArc(ax, ay, ex, ey float32, n int) [][2]float32 {
 	dx, dy := ex-ax, ey-ay
 	nx, ny := -dy, dx // a normal to the line, turned to point up
 	if ny > 0 {
@@ -169,39 +184,50 @@ func mapArc(ax, ay, ex, ey, left, width float32, n int) [][2]float32 {
 	for i := range pts {
 		t := float32(i) / float32(n)
 		u := 1 - t
-		x := u*u*ax + 2*u*t*cx + t*t*ex
-		y := u*u*ay + 2*u*t*cy + t*t*ey
-		x = left + float32(math.Mod(float64(x-left), float64(width)))
-		if x < left {
-			x += width
-		}
-		pts[i] = [2]float32{x, y}
+		pts[i] = [2]float32{u*u*ax + 2*u*t*cx + t*t*ex, u*u*ay + 2*u*t*cy + t*t*ey}
 	}
 	return pts
 }
 
-// runsOf splits points where they jump from one side of the map to the other, so
-// that no line is drawn across it.
-func runsOf(pts [][2]float32, width float32) [][][2]float32 {
+// visibleRuns cuts the points to the part of them within the map, left to
+// left+width: where the arc leaves it, the line stops.
+func visibleRuns(pts [][2]float32, left, width float32) [][][2]float32 {
 	var out [][][2]float32
-	start := 0
-	for i := 1; i <= len(pts); i++ {
-		if i == len(pts) || math.Abs(float64(pts[i][0]-pts[i-1][0])) > float64(width)/2 {
+	start := -1
+	for i := 0; i <= len(pts); i++ {
+		in := i < len(pts) && pts[i][0] >= left && pts[i][0] <= left+width
+		switch {
+		case in && start < 0:
+			start = i
+		case !in && start >= 0:
 			if i-start > 1 {
 				out = append(out, pts[start:i])
 			}
-			start = i
+			start = -1
 		}
 	}
 	return out
 }
 
+// lastVisible is the index of the last point within the map, -1 if none is.
+func lastVisible(pts [][2]float32, left, width float32) int {
+	for i := len(pts) - 1; i >= 0; i-- {
+		if pts[i][0] >= left && pts[i][0] <= left+width {
+			return i
+		}
+	}
+	return -1
+}
+
 // paintLand paints the land as dots, k pixels to a DIP.
 func (a *app) paintLand(p *ui.Painter, world geo.World, w, h, k float32) {
-	pitch := float32(geo.CoarseCell/360) * w // how far apart the dots are
+	pitch := float32(geo.CoarseCell/world.Span) * w // how far apart the dots are
 	sz := min(k*2.2, pitch*0.62)
 	for _, c := range geo.Coarse {
 		x, y := world.XY(c)
+		if x > 1.01 || y < -0.01 || y > 1.01 {
+			continue // not on the map
+		}
 		px, py := float32(x)*w, float32(y)*h
 		p.Fill(ui.Rect{X: px - sz/2, Y: py - sz/2, W: sz, H: sz}, a.k.text2.Alpha(0.45), sz/2)
 	}
