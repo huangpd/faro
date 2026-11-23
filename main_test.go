@@ -789,9 +789,9 @@ func TestNodesAreListedByCountryInOrder(t *testing.T) {
 func TestANoticeCannotBePicked(t *testing.T) {
 	a := openWithRealNodes(t)
 	tt := view(a)
-	need(t, tt, "有效期2028-11-06, 剩余 45.01 GB") // said, as a message
+	need(t, tt, "有效期2099-01-01, 剩余 100.00 GB") // said, as a message
 	before := a.eng.State().Choices["proxy"]
-	tt.Click("有效期2028-11-06, 剩余 45.01 GB")
+	tt.Click("有效期2099-01-01, 剩余 100.00 GB")
 	if a.eng.State().Choices["proxy"] != before {
 		t.Error("a notice was chosen as the exit")
 	}

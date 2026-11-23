@@ -423,7 +423,7 @@ func TestRegionOfRealNames(t *testing.T) {
 		"美国-FW-US1-流量倍率:1": "US", "美国-V6-US3-流量倍率:1": "US", "德国-DE-2-流量倍率:1": "DE", "英国-UK-1-流量倍率:0.9": "UK",
 		"新加坡-SG-3-1-流量倍率:1": "SG", "澳大利亚-AU-1-流量倍率:1.6": "AU", "中国台湾-TW-1-流量倍率:1.1": "TW", "荷兰-V6-NL1-流量倍率:0.5": "NL",
 		"爱沙尼亚-EE-1-流量倍率:0.2": "EE", "🇯🇵 Tokyo 01": "JP",
-		"有效期2028-11-06, 剩余 45.01 GB": "", // a notice is in no country
+		"有效期2099-01-01, 剩余 100.00 GB": "", // a notice is in no country
 		"Node-17":                    "", // says none
 		"Ukraine 01":                 "", // not the UK
 	} {

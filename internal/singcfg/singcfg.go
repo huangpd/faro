@@ -143,7 +143,7 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 			}
 		}
 		// The fastest-of group leaves out the notices providers list as nodes
-		// ("剩余 45 GB"): they answer, but are not servers to send traffic through.
+		// ("剩余 100 GB"): they answer, but are not servers to send traffic through.
 		autoTags := make([]string, 0, len(tags))
 		for _, t := range tags {
 			if !in.Plan.IsNotice(t) { // a nil plan uses the built-in patterns

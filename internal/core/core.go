@@ -24,7 +24,13 @@ import (
 	"faro/internal/singcfg"
 )
 
-const logLines = 200
+// logLines is how many lines the window can show; logFileSize and logFiles
+// bound the log on disk to about 15 MB.
+const (
+	logLines    = 2000
+	logFileSize = 5 << 20
+	logFiles    = 2 // kept besides the one being written
+)
 
 // ansi matches the terminal colors a program may put in its output.
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
@@ -202,9 +208,13 @@ func (c *Core) Start(in singcfg.Input, mixed int) error {
 // pump keeps the last lines of the core's output in a ring.
 func (c *Core) pump(r io.Reader) {
 	sc := bufio.NewScanner(r)
+	file := newLogFile(filepath.Join(c.dir, "logs", "core.log"), logFileSize, logFiles)
+	defer file.Close()
 	for sc.Scan() {
+		line := zone.ReplaceAllString(ansi.ReplaceAllString(sc.Text(), ""), "")
+		file.Write(line)
 		c.mu.Lock()
-		c.logs = append(c.logs, zone.ReplaceAllString(ansi.ReplaceAllString(sc.Text(), ""), ""))
+		c.logs = append(c.logs, line)
 		if n := len(c.logs); n > logLines {
 			c.logs = append(c.logs[:0], c.logs[n-logLines:]...)
 		}

@@ -263,7 +263,7 @@ func TestProbeIsNotGoogle(t *testing.T) {
 
 func TestAutoGroupSkipsNotices(t *testing.T) {
 	nodes := []Outbound{
-		{"有效期2028-11-06, 剩余 45.01 GB", map[string]any{"type": "shadowsocks", "server": "a.example.com", "server_port": 1, "method": "aes-256-gcm", "password": "p"}},
+		{"有效期2099-01-01, 剩余 100.00 GB", map[string]any{"type": "shadowsocks", "server": "a.example.com", "server_port": 1, "method": "aes-256-gcm", "password": "p"}},
 		{"日本-TY-1-流量倍率:1.2", map[string]any{"type": "shadowsocks", "server": "b.example.com", "server_port": 1, "method": "aes-256-gcm", "password": "p"}},
 	}
 	set, _ := NewSettings(0)
