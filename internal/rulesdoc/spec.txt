@@ -9,8 +9,8 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
 
 ## Routes: groups of nodes that a rule can send traffic to
 
-    route <id> region <XX> [fast] [gate] [ipv4]
-    route <id> regex "<expression>" [fast] [gate] [ipv4]
+    route <id> region <XX> [fast] [gate] [ipv4] [exit:<range>]
+    route <id> regex "<expression>" [fast] [gate] [ipv4] [exit:<range>]
     route <id> like <other-route>
 
 - <id>: lower-case letters, digits and '-', starting with a letter. Not one of
@@ -25,7 +25,11 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
   makes it follow the fastest node of the group instead.
 - `gate` adds a switch the user can flip to cut the route: while cut, nothing sent
   to it goes out.
-- `ipv4` makes the route's nodes dial IPv4 only.
+- `ipv4` makes what is sent to the route leave its node over IPv4 only: names are
+  looked up IPv4 only, through the route itself, and the node is given the address.
+- `exit:<range>` (e.g. exit:198.51.100.0/24; several allowed) is where the route may
+  leave from: the address the world sees is checked while it runs, and the route is
+  cut when it is another, or cannot be told. It implies `gate`.
 - A route is strict: if no node matches, what is sent to it is BLOCKED, never sent
   out through another country's node. Do not add fallbacks.
 

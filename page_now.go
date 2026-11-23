@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 
@@ -124,13 +125,16 @@ func (a *app) lane(c *ui.Context, st engine.State, r rules.Route, hue ui.Color) 
 				return
 			}
 			a.laneExit(c, st, r)
+			if len(r.Exit) > 0 {
+				a.exitLine(c, st, r)
+			}
 			if a.expanded[r.ID] {
 				a.nodeChips(c, st, r.Nodes, r.Chosen, r.Fast, func(tag string) { a.eng.Choose(r.ID, tag) })
 			}
 		})
 		if !blocked {
 			mode := mapLive
-			if r.Closed {
+			if r.Closed || (len(r.Exit) > 0 && !st.Exits[r.ID].OK) { // cut by hand, or by its check
 				mode = mapClosed
 			}
 			exit, label := laneExitPlace(st, r)
@@ -236,6 +240,26 @@ func (a *app) mainLane(c *ui.Context, st engine.State) {
 }
 
 func cur(st engine.State) string { return st.Choices[singcfg.TagProxy] }
+
+// exitLine is where a checked route was last seen leaving from: the address, and
+// whether the route is cut for it.
+func (a *app) exitLine(c *ui.Context, st engine.State, r rules.Route) {
+	x, ok := st.Exits[r.ID]
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "出口").FontSize(fsMeta).TextColor(a.k.text2)
+		switch {
+		case !ok || (x.At.IsZero() && x.Checking):
+			ui.Spinner(c).Size(12, 12).Label("正在核对出口")
+			ui.Text(c, "核对中，未放行").FontSize(fsCaption).TextColor(a.k.text2)
+		case x.OK:
+			a.pill(c, x.IP, a.k.ok).Tooltip("在 " + strings.Join(r.Exit, "、") + " 内")
+		case x.Err != "":
+			a.pill(c, "无法确认，已切断", a.k.danger).Tooltip(x.Err)
+		default:
+			a.pill(c, x.IP+" 不在范围，已切断", a.k.danger).Tooltip("应在 " + strings.Join(r.Exit, "、") + " 内")
+		}
+	})
+}
 
 // delayPill is how far away an exit is, in milliseconds (the round trip to its
 // server), and, apart from it, whether it works: whether a request goes out through it.

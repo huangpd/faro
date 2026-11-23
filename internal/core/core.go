@@ -125,6 +125,13 @@ func findBinary(resDir string) (string, error) {
 // Dir is the data directory.
 func (c *Core) Dir() string { return c.dir }
 
+// CheckPort is the port of a route group's check entrance in this run, 0 for none.
+func (c *Core) CheckPort(group string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.set.CheckPorts[group]
+}
+
 // Bin is the core program, which can also read a rule set out.
 func (c *Core) Bin() string { return c.bin }
 
@@ -163,6 +170,15 @@ func (c *Core) Start(in singcfg.Input, mixed int) error {
 	set, err := singcfg.NewSettings(mixed)
 	if err != nil {
 		return err
+	}
+	if in.Plan != nil && len(in.Nodes) > 0 {
+		for _, r := range in.Plan.Routes {
+			if len(r.Exit) > 0 && len(r.Nodes) > 0 {
+				if err := set.AddCheck(r.Group()); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	cfg, notes, err := singcfg.Build(set, in)
 	if err != nil {

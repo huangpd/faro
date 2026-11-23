@@ -1440,3 +1440,21 @@ func TestDelayAndWorkingAreShownApart(t *testing.T) {
 		t.Error("a verdict before the test of it")
 	}
 }
+
+func TestACheckedRouteSaysWhereItLeavesFrom(t *testing.T) {
+	a := newTestApp(t)
+	view(a)
+	r := rules.Route{ID: "work", Exit: []string{"198.51.100.0/24"}}
+	draw := func(x *engine.ExitCheck) *ui.Tester {
+		st := a.eng.State()
+		st.Exits = map[string]engine.ExitCheck{}
+		if x != nil {
+			st.Exits["work"] = *x
+		}
+		return ui.NewTester(func(c *ui.Context) { a.exitLine(c, st, r) }, 500, 40)
+	}
+	need(t, draw(nil), "核对中，未放行")
+	need(t, draw(&engine.ExitCheck{IP: "198.51.100.222", OK: true, At: time.Now()}), "198.51.100.222")
+	need(t, draw(&engine.ExitCheck{IP: "1.2.3.4", At: time.Now()}), "1.2.3.4 不在范围，已切断")
+	need(t, draw(&engine.ExitCheck{Err: "timeout", At: time.Now()}), "无法确认，已切断")
+}

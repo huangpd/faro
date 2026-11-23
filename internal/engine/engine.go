@@ -71,6 +71,13 @@ type Options struct {
 	// RTT times the round trip to a node's server, in ms; zero is a TCP connect to
 	// it. For tests.
 	RTT func(ctx context.Context, tag string) (int, error)
+	// ExitIP asks where a route group leaves from; zero asks Cloudflare through
+	// the group's check entrance. ExitEvery is how often it is asked: 2 minutes
+	// when zero. For tests.
+	ExitIP    func(ctx context.Context, group string) (string, error)
+	ExitEvery time.Duration
+	// Alert tells the person something they must know now, as a notification.
+	Alert func(title, body string)
 	// Probe times one node through the running core: ms, or an error. Nil asks the
 	// core (clashapi Delay). A hook, so that the engine's bookkeeping of tests can be
 	// tested apart from the core's.
@@ -116,14 +123,15 @@ type State struct {
 	// group in GroupErrors (by name) is not in force, and the value says why.
 	Groups      []domains.Group
 	GroupErrors map[string]string
-	Delays      map[string]int    // ms by node tag, the round trip to its server; -1 no answer; absent untested
-	Works       map[string]bool   // whether a request went out through the node; absent untested
-	Testing     map[string]bool   // nodes being tested now
-	SystemProxy bool              // whether the user wants the system proxy on
-	LightMode   bool              // the window is not opened unless asked for
-	MixedPort   int               // the local proxy's port, which does not change
-	Notes       []string          // what the last config left out
-	DNS         singcfg.DNSChoice // the DNS servers in use, by id
+	Delays      map[string]int       // ms by node tag, the round trip to its server; -1 no answer; absent untested
+	Works       map[string]bool      // whether a request went out through the node; absent untested
+	Exits       map[string]ExitCheck // where each checked route was last seen leaving from, by route id
+	Testing     map[string]bool      // nodes being tested now
+	SystemProxy bool                 // whether the user wants the system proxy on
+	LightMode   bool                 // the window is not opened unless asked for
+	MixedPort   int                  // the local proxy's port, which does not change
+	Notes       []string             // what the last config left out
+	DNS         singcfg.DNSChoice    // the DNS servers in use, by id
 	// RuleSetsChecked is when the rule sets were last known to be current: the
 	// last time they were fetched, or the date of the copy that shipped.
 	RuleSetsChecked time.Time
@@ -168,6 +176,10 @@ type Engine struct {
 	groupErrs     map[string]string
 	delays        map[string]int
 	works         map[string]bool
+	exits         map[string]ExitCheck
+	exitOpen      map[string]bool // routes this run's check has opened
+	exitKick      chan struct{}
+	alerted       map[string]bool     // routes cut by their check that the person was told of
 	addrs         map[string]nodeAddr // where each node's server is
 	testing       map[string]bool
 	subs          []sub.Subscription
@@ -211,7 +223,7 @@ func New(opts Options) (*Engine, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	e := &Engine{opts: opts, status: Stopped, delays: map[string]int{}, works: map[string]bool{}, testing: map[string]bool{}, choices: map[string]string{}, quit: make(chan struct{})}
+	e := &Engine{opts: opts, status: Stopped, delays: map[string]int{}, works: map[string]bool{}, exits: map[string]ExitCheck{}, exitOpen: map[string]bool{}, exitKick: make(chan struct{}, 1), alerted: map[string]bool{}, testing: map[string]bool{}, choices: map[string]string{}, quit: make(chan struct{})}
 	var err error
 	if e.core, err = core.New(opts.ResourcesDir, e.changed); err != nil {
 		return nil, err
@@ -285,7 +297,7 @@ func (e *Engine) State() State {
 		Choices:    copyMap(e.choices),
 		Plan:       e.plan,
 		PlanErrors: append([]rules.Error(nil), e.planErrs...),
-		RulesText:  e.rulesText, Groups: domains.Copy(e.groupsList), GroupErrors: copyMap(e.groupErrs), Delays: copyInts(e.delays), Works: copyBools(e.works), Testing: copyBools(e.testing),
+		RulesText:  e.rulesText, Groups: domains.Copy(e.groupsList), GroupErrors: copyMap(e.groupErrs), Delays: copyInts(e.delays), Works: copyBools(e.works), Exits: copyExits(e.exits), Testing: copyBools(e.testing),
 		SystemProxy: e.prefs.SystemProxy, LightMode: e.prefs.LightMode, MixedPort: e.prefs.MixedPort,
 		Notes: e.core.Notes(), DataDir: e.core.Dir(),
 		DNS:             singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign},
@@ -523,12 +535,22 @@ func (e *Engine) Choose(route, tag string) {
 		todo = []sel{{singcfg.TagProxy, name}}
 	} else if e.plan != nil {
 		for _, r := range e.plan.Routes {
+			if r.ID != route && !(r.Kind == "like" && r.Like == route) {
+				continue
+			}
+			if len(r.Exit) > 0 {
+				// A route whose exit is checked is cut while its new node is asked
+				// where it leaves from; the check opens it on that node.
+				open := r
+				open.Closed = false
+				todo = append(todo, sel{r.Group(), rules.GateTag}, sel{singcfg.CheckTag(r.Group()), nodeOf(open)})
+				e.exitOpen[r.ID] = false
+				continue
+			}
 			if r.Closed {
 				continue
 			}
-			if r.ID == route || (r.Kind == "like" && r.Like == route) {
-				todo = append(todo, sel{r.Group(), nodeOf(r)})
-			}
+			todo = append(todo, sel{r.Group(), nodeOf(r)})
 		}
 	}
 	// A few hundred bytes: saved here, so that what is shown is what is kept.
@@ -551,6 +573,7 @@ func (e *Engine) Choose(route, tag string) {
 				return
 			}
 		}
+		e.kickExits()
 	}()
 }
 
@@ -579,11 +602,20 @@ func (e *Engine) SetGate(route string, closed bool) {
 	}
 	e.recompileLocked(nil)
 	var group, name string
+	checked := false
 	if e.plan != nil {
 		for _, r := range e.plan.Routes {
 			if r.ID == route {
 				group, name = r.Group(), nodeOf(r)
+				checked = len(r.Exit) > 0
 			}
+		}
+	}
+	if checked {
+		// Opened by the person, a checked route is still opened by its check alone.
+		e.exitOpen[route] = false
+		if !closed {
+			name = rules.GateTag
 		}
 	}
 	err := e.store.SetChoice(key, val)
@@ -601,6 +633,9 @@ func (e *Engine) SetGate(route string, closed bool) {
 		defer cancel()
 		if err := e.core.API().Select(ctx, group, name); err != nil {
 			e.fail(err)
+		}
+		if checked {
+			e.kickExits()
 		}
 	}()
 }
@@ -1110,8 +1145,10 @@ func (e *Engine) run(g int) {
 	}
 	e.status, e.version = Running, v.Version
 	want := e.prefs.SystemProxy
+	e.exitOpen = map[string]bool{} // a new run starts with its checked routes cut
 	e.mu.Unlock()
 	e.changed()
+	go e.watchExits(ctx, g)
 	go e.maybeUpdateRuleSets() // now there is a proxy to fetch through, if the direct way failed
 	if want {
 		e.fail(e.proxy.Enable("127.0.0.1", e.core.MixedPort()))

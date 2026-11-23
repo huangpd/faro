@@ -159,6 +159,9 @@ func main() {
 	eng, err := engine.New(engine.Options{
 		ResourcesDir: res,
 		Notify:       func() { mygo.RunOnMain(func() { a.refresh() }) },
+		Alert: func(title, body string) { // must be seen now: a route was cut
+			go func() { _ = mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show() }()
+		},
 	})
 	if err != nil {
 		log.Fatal(err)

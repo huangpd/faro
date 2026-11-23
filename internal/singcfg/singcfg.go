@@ -19,7 +19,28 @@ type Settings struct {
 	MixedPort int    // local HTTP+SOCKS inbound on 127.0.0.1
 	APIPort   int    // Clash API controller on 127.0.0.1
 	Secret    string // bearer token for the controller
+	// CheckPorts are the ports of the check entrances, by route group: a proxy
+	// that goes out through the route's node whatever its gate, so that where it
+	// leaves from can be asked while it is cut (AddCheck).
+	CheckPorts map[string]int
 }
+
+// AddCheck gives a route group a check entrance on a free port.
+func (s *Settings) AddCheck(group string) error {
+	p, err := freePort()
+	if err != nil {
+		return err
+	}
+	if s.CheckPorts == nil {
+		s.CheckPorts = map[string]int{}
+	}
+	s.CheckPorts[group] = p
+	return nil
+}
+
+// CheckTag is the tag of a route group's check entrance, and of the group it
+// goes out by: the route's nodes, without the gate.
+func CheckTag(group string) string { return "check-" + group }
 
 // NewSettings makes the settings of a run. mixed is the port of the proxy
 // the user's tools are pointed at, so it must not change from run to run:
@@ -70,6 +91,10 @@ func freePort() (int, error) {
 // not be a request that such a service sees from there.
 const ProbeURL = "https://cp.cloudflare.com/generate_204"
 
+// TraceURL answers, among other things, the address a request came from: what
+// the world sees of a route's exit. The same host as ProbeURL.
+const TraceURL = "https://cp.cloudflare.com/cdn-cgi/trace"
+
 // cnRuleSet is the rule set that tells names in China: what the DNS asks the
 // domestic server for. It is the one the base rules send direct.
 const cnRuleSet = "geosite-cn"
@@ -111,9 +136,12 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 	var routeRules []any
 	sets := map[string]any{}
 	findProcess := false
-	// The groups of ipv4 routes: what is sent to them leaves the node over IPv4.
-	var ipv4Groups []string
+	// The groups of ipv4 routes: what is sent to them leaves the node over IPv4,
+	// looked up by a DNS server reached through the same group.
+	var vias []dnsVia
 	isIPv4Group := map[string]bool{}
+	var checkRules []any
+	var checkIns []any
 
 	if len(nodes) > 0 {
 		// Nodes of an ipv4 route resolve the names they dial as IPv4 only.
@@ -173,7 +201,7 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 					continue // its rules were turned into blocks
 				}
 				if r.IPv4 {
-					ipv4Groups = append(ipv4Groups, r.Group())
+					vias = append(vias, dnsVia{viaDNS(r.Group()), r.Group()})
 					isIPv4Group[r.Group()] = true
 				}
 				choices := append([]string{}, r.Nodes...)
@@ -189,21 +217,46 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 				}
 				if r.Gate {
 					choices = append(choices, rules.GateTag)
-					if r.Closed {
+					// A route whose exit is checked starts cut, and is opened by the check
+					// once it has seen where the route leaves from: nothing goes out before.
+					if r.Closed || (len(r.Exit) > 0 && s.CheckPorts[r.Group()] != 0) {
 						def = rules.GateTag
 					}
 				}
 				outbounds = append(outbounds, map[string]any{"type": "selector", "tag": r.Group(), "outbounds": choices, "default": def})
+
+				// A route whose exit is checked has an entrance of its own for the check,
+				// which goes out by the route's nodes but never by its gate: a route that
+				// is cut can still be asked where it would leave from.
+				if port := s.CheckPorts[r.Group()]; port != 0 && len(r.Exit) > 0 {
+					ct := CheckTag(r.Group())
+					var nodes []string
+					for _, c := range choices {
+						if c != rules.GateTag {
+							nodes = append(nodes, c)
+						}
+					}
+					cdef := r.Chosen
+					if cdef == "" {
+						cdef = nodes[0]
+					}
+					outbounds = append(outbounds, map[string]any{"type": "selector", "tag": ct, "outbounds": nodes, "default": cdef})
+					checkIns = append(checkIns, map[string]any{"type": "mixed", "tag": ct, "listen": "127.0.0.1", "listen_port": port})
+					if r.IPv4 {
+						vias = append(vias, dnsVia{viaDNS(ct), ct})
+						checkRules = append(checkRules, map[string]any{"inbound": []string{ct}, "action": "resolve", "server": viaDNS(ct), "strategy": "ipv4_only"})
+					}
+					checkRules = append(checkRules, map[string]any{"inbound": []string{ct}, "action": "route", "outbound": ct})
+				}
 			}
 		}
 	}
 
 	// sniff first, so rules on names see the name of a connection to an
 	// address; private addresses next; then the user's rules in order.
-	routeRules = append(routeRules,
-		map[string]any{"action": "sniff"},
-		map[string]any{"ip_is_private": true, "action": "route", "outbound": TagDirect},
-	)
+	routeRules = append(routeRules, map[string]any{"action": "sniff"})
+	routeRules = append(routeRules, checkRules...) // the checks go their own way, before all else
+	routeRules = append(routeRules, map[string]any{"ip_is_private": true, "action": "route", "outbound": TagDirect})
 	if len(nodes) > 0 && in.Plan != nil {
 		resolved := false
 	rules:
@@ -282,7 +335,7 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 		sets[cnRuleSet] = map[string]any{"type": "local", "tag": cnRuleSet, "format": "binary", "path": path}
 		cnSet = cnRuleSet
 	}
-	dnsSection, resolver, dnsNotes := dnsConfig(in.DNS, len(nodes) > 0, cnSet, ipv4Groups)
+	dnsSection, resolver, dnsNotes := dnsConfig(in.DNS, len(nodes) > 0, cnSet, vias)
 	notes = append(notes, dnsNotes...)
 
 	var ruleSets []any
@@ -299,10 +352,10 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 	c := map[string]any{
 		"log": map[string]any{"level": "info", "timestamp": true},
 		"dns": dnsSection,
-		"inbounds": []any{map[string]any{
+		"inbounds": append([]any{map[string]any{
 			"type": "mixed", "tag": "mixed-in",
 			"listen": "127.0.0.1", "listen_port": s.MixedPort,
-		}},
+		}}, checkIns...),
 		"outbounds": outbounds,
 		"route":     route,
 		"experimental": map[string]any{

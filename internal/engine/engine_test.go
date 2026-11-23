@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"faro/internal/singcfg"
 	"faro/internal/sub"
 	"fmt"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"faro/internal/domains"
 	"faro/internal/fixtures"
 	"faro/internal/presets"
+	"faro/internal/rules"
 	"faro/internal/ruleset"
 )
 
@@ -1059,4 +1061,103 @@ func TestOverlapsAndHoldersFromRealRuleSets(t *testing.T) {
 	if got := e.SetsHolding("no-such-site.invalid"); len(got) != 0 {
 		t.Errorf("a site in no set: %v", got)
 	}
+}
+
+func TestARouteIsOpenOnlyWhileItLeavesFromItsExit(t *testing.T) {
+	var mu sync.Mutex
+	answer, answerErr := "1.2.3.4", error(nil)
+	var alerts []string
+	e := newEngineWith(t, (&fakeNetworksetup{}).run, func(o *Options) {
+		o.ExitIP = func(context.Context, string) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return answer, answerErr
+		}
+		o.ExitEvery = time.Hour // only when asked, in this test
+		o.Alert = func(title, body string) {
+			mu.Lock()
+			alerts = append(alerts, title+" "+body)
+			mu.Unlock()
+		}
+	})
+	set := func(ip string, err error) {
+		mu.Lock()
+		answer, answerErr = ip, err
+		mu.Unlock()
+	}
+	told := func() int { mu.Lock(); defer mu.Unlock(); return len(alerts) }
+	e.addAndWait(t, subFile(t, "🇬🇧 London 01", "🇬🇧 London 02"), 2)
+	if errs := e.ApplyRules("route work region UK exit:198.51.100.0/24\nwork domain:work.example\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	e.Start()
+	waitFor(t, "running", func() bool { return e.State().Status == Running })
+	now := func(group string) string {
+		ctx, cancel := timeout(5 * time.Second)
+		defer cancel()
+		ps, err := e.core.API().Proxies(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ps[group].Now
+	}
+	checked := func() ExitCheck { return e.State().Exits["work"] }
+
+	// It leaves from elsewhere: it stays cut, says where from, and the person is told once.
+	waitFor(t, "the first check", func() bool { c := checked(); return !c.At.IsZero() && !c.Checking })
+	if c := checked(); c.OK || c.IP != "1.2.3.4" || now("route-work") != rules.GateTag {
+		t.Fatalf("check %+v, the route on %q", c, now("route-work"))
+	}
+	if told() != 1 || !strings.Contains(alerts[0], "1.2.3.4") || !strings.Contains(alerts[0], "198.51.100.0/24") {
+		t.Errorf("alerts %v", alerts)
+	}
+
+	// It leaves from its range: opened, on its node.
+	set("198.51.100.222", nil)
+	e.kickExits()
+	waitFor(t, "opened", func() bool { return now("route-work") == "🇬🇧 London 01" })
+	if c := checked(); !c.OK || c.IP != "198.51.100.222" {
+		t.Errorf("check %+v", c)
+	}
+
+	// Another node: cut until it is seen to leave from the range, then open on it.
+	e.Choose("work", "🇬🇧 London 02")
+	waitFor(t, "the new node", func() bool { return now("route-work") == "🇬🇧 London 02" })
+	if now(singcfg.CheckTag("route-work")) != "🇬🇧 London 02" {
+		t.Error("the check does not go out by the chosen node")
+	}
+
+	// It changes to another address while open: cut, and told.
+	set("198.51.101.1", nil)
+	e.kickExits()
+	waitFor(t, "cut", func() bool { return now("route-work") == rules.GateTag })
+	waitFor(t, "told", func() bool { return told() == 2 })
+
+	// It cannot be told: cut, and why is kept.
+	set("", errors.New("timeout"))
+	e.kickExits()
+	waitFor(t, "the failed check", func() bool { c := checked(); return c.Err != "" && !c.Checking })
+	if now("route-work") != rules.GateTag || checked().OK {
+		t.Error("a route whose exit cannot be told is open")
+	}
+
+	// Cut by the person, it stays cut whatever the check sees; opened by the
+	// person, it is opened by the check alone.
+	set("198.51.100.222", nil)
+	e.SetGate("work", true)
+	e.kickExits()
+	waitFor(t, "a check", func() bool { return checked().OK })
+	time.Sleep(300 * time.Millisecond)
+	if now("route-work") != rules.GateTag {
+		t.Error("the check opened a route the person cut")
+	}
+	set("9.9.9.9", nil)
+	e.SetGate("work", false)
+	time.Sleep(500 * time.Millisecond)
+	if now("route-work") != rules.GateTag {
+		t.Error("opening by hand let it out before it was checked")
+	}
+	set("198.51.100.222", nil)
+	e.kickExits()
+	waitFor(t, "opened by the check", func() bool { return now("route-work") == "🇬🇧 London 02" })
 }

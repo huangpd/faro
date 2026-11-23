@@ -6,7 +6,9 @@
 #   route <id> region <XX> [fast] [gate] [ipv4]   nodes of a country, held on ONE node
 #                                                  fast  follow the fastest instead
 #                                                  gate  add a switch that cuts the route
-#                                                  ipv4  its nodes dial IPv4 only
+#                                                  ipv4  it leaves its nodes over IPv4 only
+#                                                  exit:<range>  the addresses it may leave
+#                                                        from, checked; cut when not
 #   route <id> like <route>                        the same node as another route
 #   route <id> regex "<expression>"                nodes whose name matches
 #

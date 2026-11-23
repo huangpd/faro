@@ -378,3 +378,83 @@ direct domain:local.example
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+func TestARouteWithAnExitHasACheckEntranceThatIgnoresItsGate(t *testing.T) {
+	text := "route work region UK ipv4 exit:198.51.100.0/24\nroute plain region DE\nwork domain:work.example\n"
+	tags := []string{"UK 01", "UK 02", "DE 01"}
+	plan, errs := rules.Compile(text, tags, map[string]string{"work": "UK 02", "work" + rules.GateSuffix: "closed"})
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	var nodes []Outbound
+	for _, tag := range tags {
+		nodes = append(nodes, Outbound{tag, map[string]any{"type": "shadowsocks", "server": "a.example.com", "server_port": 1, "method": "aes-256-gcm", "password": "p"}})
+	}
+	set, _ := NewSettings(0)
+	if err := set.AddCheck("route-work"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Build(set, Input{Nodes: nodes, Plan: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bin, _ := filepath.Abs("../../bin/sing-box"); fileExists(bin) {
+		p := filepath.Join(t.TempDir(), "c.json")
+		os.WriteFile(p, cfg, 0o600)
+		if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+	}
+	var c struct {
+		Inbounds  []map[string]any `json:"inbounds"`
+		Outbounds []map[string]any `json:"outbounds"`
+		DNS       struct {
+			Servers []map[string]any `json:"servers"`
+		} `json:"dns"`
+		Route struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	json.Unmarshal(cfg, &c)
+	ct := CheckTag("route-work")
+	var in, sel map[string]any
+	for _, i := range c.Inbounds {
+		if i["tag"] == ct {
+			in = i
+		}
+	}
+	for _, o := range c.Outbounds {
+		if o["tag"] == ct {
+			sel = o
+		}
+		if o["tag"] == CheckTag("route-plain") {
+			t.Error("a route with no exit has a check")
+		}
+	}
+	if in == nil || int(in["listen_port"].(float64)) != set.CheckPorts["route-work"] || in["listen"] != "127.0.0.1" {
+		t.Fatalf("check entrance %v", in)
+	}
+	if sel == nil || fmt.Sprint(sel["outbounds"]) != "[UK 01 UK 02]" || sel["default"] != "UK 02" {
+		t.Errorf("the check goes out by %v: the route's nodes, on its node, never its gate", sel)
+	}
+	// Right after sniff, before anything else: the lookup, IPv4 only, through the
+	// check's own server, then out through the check's group.
+	r := c.Route.Rules
+	if r[1]["action"] != "resolve" || r[1]["server"] != "dns-"+ct || fmt.Sprint(r[1]["inbound"]) != "["+ct+"]" ||
+		r[2]["action"] != "route" || r[2]["outbound"] != ct || fmt.Sprint(r[2]["inbound"]) != "["+ct+"]" {
+		t.Errorf("check rules %v / %v", r[1], r[2])
+	}
+	found := false
+	for _, s := range c.DNS.Servers {
+		found = found || (s["tag"] == "dns-"+ct && s["detour"] == ct)
+	}
+	if !found {
+		t.Error("no DNS server through the check's group: a cut route would have none to look up with")
+	}
+	// Without a port, no entrance: the check is for a running core that asked for one.
+	set2, _ := NewSettings(0)
+	cfg2, _, _ := Build(set2, Input{Nodes: nodes, Plan: plan})
+	if strings.Contains(string(cfg2), ct) {
+		t.Error("an entrance with no port")
+	}
+}

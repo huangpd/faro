@@ -22,7 +22,9 @@
 package rules
 
 import (
+	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"sort"
 	"strconv"
@@ -48,12 +50,16 @@ const (
 
 // Route is a named group of nodes.
 type Route struct {
-	ID    string
-	Kind  string // "region", "regex" or "like"
-	Arg   string // the region id, the regular expression, or the route followed
-	Fast  bool   // follow the fastest node, rather than hold one
-	Gate  bool   // the group has a way to cut it: GateTag
-	IPv4  bool   // its nodes dial IPv4 only
+	ID   string
+	Kind string // "region", "regex" or "like"
+	Arg  string // the region id, the regular expression, or the route followed
+	Fast bool   // follow the fastest node, rather than hold one
+	Gate bool   // the group has a way to cut it: GateTag
+	IPv4 bool   // its traffic leaves its nodes over IPv4 only
+	// Exit is the addresses the route may leave from, as address ranges: the
+	// address the world sees is checked, and a route that leaves from another
+	// is cut. Empty is no check.
+	Exit  []string
 	Like  string // the route whose node this one uses, for Kind "like"
 	Line  int
 	Nodes []string
@@ -392,7 +398,7 @@ func parseRule(f []string, line int) (Rule, string) {
 }
 
 func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
-	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4]  |  route <id> regex <expression> [...]  |  route <id> like <route>"
+	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4] [exit:<range>]  |  route <id> regex <expression> [...]  |  route <id> like <route>"
 	if len(f) < 3 {
 		return nil, usage
 	}
@@ -437,10 +443,49 @@ func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
 		case "ipv4":
 			r.IPv4 = true
 		default:
-			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4", mod)
+			if v, ok := strings.CutPrefix(mod, "exit:"); ok {
+				p, err := exitRange(v)
+				if err != nil {
+					return nil, fmt.Sprintf("exit:%s: %v", v, err)
+				}
+				r.Exit = append(r.Exit, p)
+				r.Gate = true // a route that is checked is cut by the check: it has a gate
+				continue
+			}
+			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4, exit:<address range>", mod)
 		}
 	}
 	return r, ""
+}
+
+// exitRange reads an address range, "198.51.100.0/24", or an address alone.
+func exitRange(s string) (string, error) {
+	if p, err := netip.ParsePrefix(s); err == nil {
+		return p.Masked().String(), nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return "", errors.New("expected an address range, as 198.51.100.0/24, or an address")
+	}
+	return netip.PrefixFrom(a, a.BitLen()).String(), nil
+}
+
+// ExitAllows says whether the route may leave from ip: yes when it has no exit to
+// keep to, or ip is in one of its ranges.
+func (r Route) ExitAllows(ip string) bool {
+	if len(r.Exit) == 0 {
+		return true
+	}
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	for _, s := range r.Exit {
+		if p, err := netip.ParsePrefix(s); err == nil && p.Contains(a.Unmap()) {
+			return true
+		}
+	}
+	return false
 }
 
 // match returns the route's nodes, in a stable order.

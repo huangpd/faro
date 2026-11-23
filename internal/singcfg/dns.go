@@ -82,7 +82,10 @@ func DNSOptions(side string) []DNSServer {
 // rule set that tells names in China, "" when it is not installed: then all
 // names go through the proxy, which is slower for names in China but leaks
 // nothing.
-func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string, via []string) (dns map[string]any, resolver string, notes []string) {
+// dnsVia is a DNS server reached through an outbound: its tag, and the outbound.
+type dnsVia struct{ tag, detour string }
+
+func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string, via []dnsVia) (dns map[string]any, resolver string, notes []string) {
 	dom, _ := pick("domestic", choice.Domestic)
 	servers := []any{map[string]any{
 		"type": "https", "tag": "domestic", "server": dom.Address, "tls": map[string]any{"server_name": dom.TLSName},
@@ -100,10 +103,10 @@ func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string, via []string) (dns
 	// A server for each ipv4 route, the foreign one reached through the route
 	// itself: the names its traffic goes to are looked up from its node, not
 	// from here nor through another country's. A gate that is shut shuts it too.
-	for _, g := range via {
+	for _, v := range via {
 		dns["servers"] = append(dns["servers"].([]any), map[string]any{
-			"type": "https", "tag": viaDNS(g), "server": foreign.Address, "tls": map[string]any{"server_name": foreign.TLSName},
-			"detour": g,
+			"type": "https", "tag": v.tag, "server": foreign.Address, "tls": map[string]any{"server_name": foreign.TLSName},
+			"detour": v.detour,
 		})
 	}
 	dns["final"] = "foreign"

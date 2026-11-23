@@ -504,3 +504,30 @@ func TestCompileWithPutsTheHeadFirstAndKeepsLines(t *testing.T) {
 		t.Error("no head is no change")
 	}
 }
+
+func TestExitRangesOfARoute(t *testing.T) {
+	plan, errs := Compile("route work region UK exit:198.51.100.0/24 exit:203.0.113.7 ipv4\nwork domain:a.example\n", []string{"UK 1"}, nil)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	r := plan.Routes[0]
+	if len(r.Exit) != 2 || r.Exit[0] != "198.51.100.0/24" || r.Exit[1] != "203.0.113.7/32" || !r.Gate || !r.IPv4 {
+		t.Fatalf("route %+v", r)
+	}
+	for ip, want := range map[string]bool{"198.51.100.222": true, "198.51.100.0": true, "198.51.101.1": false, "203.0.113.7": true, "203.0.113.8": false, "2a01::1": false, "": false, "nonsense": false} {
+		if r.ExitAllows(ip) != want {
+			t.Errorf("ExitAllows(%q) = %v", ip, !want)
+		}
+	}
+	if !(Route{}).ExitAllows("1.2.3.4") {
+		t.Error("a route with no exit to keep to allows any")
+	}
+	if p, _ := Compile("route w region UK exit:198.51.100.9/24\nw domain:a.example\n", []string{"UK 1"}, nil); p.Routes[0].Exit[0] != "198.51.100.0/24" {
+		t.Errorf("a range is kept as its network: %v", p.Routes[0].Exit)
+	}
+	for _, bad := range []string{"exit:", "exit:198.51.100", "exit:example.com", "exit:1.2.3.4/40"} {
+		if _, errs := Compile("route w region UK "+bad+"\n", []string{"UK 1"}, nil); errs == nil {
+			t.Errorf("%q was taken", bad)
+		}
+	}
+}
