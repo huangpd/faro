@@ -27,7 +27,7 @@ const (
 	mapScale = 2
 	// mapRunTime is how long the light takes to run from here to the exit, and
 	// mapEvery how often it runs.
-	mapRunTime = 1400 * time.Millisecond
+	mapRunTime = 1100 * time.Millisecond
 	mapEvery   = 5 * time.Second
 	mapTail    = 16 // points of the light's tail
 	mapN       = 56 // points along the arc
@@ -150,7 +150,7 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 	p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
 		Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0)}}}, 9)
 	dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
-	p.AnimationFrameRate(24)
+	p.AnimationFrameRate(15)
 }
 
 // mapArc is n+1 points of an arc from (ax, ay) to (ex, ey) that bows up from the
