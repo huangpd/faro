@@ -58,6 +58,7 @@ type app struct {
 	domErr    string
 	setQuery  map[string]*string // each group's rule-set search
 	newGroup  newGroupDraft
+	retarget  retargetAsk
 	delAsk    bool // asking before a group is deleted
 	delName   string
 

@@ -1209,3 +1209,54 @@ func TestOverlapsAreShownOnBothGroupsAndASiteSaysWhichSetsHoldIt(t *testing.T) {
 		t.Error("an address was looked up as a name")
 	}
 }
+
+func TestChangingAGroupsPlaceAsksFirstWhenItHoldsSomething(t *testing.T) {
+	a := newTestApp(t)
+	a.eng.NewGroup("国内", "direct", "a.com")
+	if err := a.eng.AddSet("国内", "geosite-google-gemini"); err != nil {
+		t.Fatal(err)
+	}
+	a.eng.NewGroup("空", "direct", "")
+	place := func(name string) string {
+		for _, g := range a.eng.State().Groups {
+			if g.Name == name {
+				return g.Target
+			}
+		}
+		return "?"
+	}
+
+	tt := view(a, "规则")
+	tt.Click("直连") // the first group's place
+	tt.Click("proxy")
+	if place("国内") != "direct" {
+		t.Fatal("a group with sites changed place without asking")
+	}
+	tt = view(a, "规则")
+	need(t, tt, "改变整个分组的去向？", "国内 里有 1 个域名、1 个规则集，都会改为去 proxy。", "改去向")
+	// Asked, and not answered: the drop-down is as it was.
+	if got := a.domSel["g:国内"]; got == nil || *got != "直连" {
+		t.Errorf("the drop-down shows %v", got)
+	}
+	tt.Click("取消")
+	if place("国内") != "direct" {
+		t.Error("cancel changed the place")
+	}
+
+	tt = view(a, "规则")
+	tt.Click("直连")
+	tt.Click("proxy")
+	view(a, "规则").Click("改去向")
+	if place("国内") != "proxy" {
+		t.Errorf("confirmed, and it is %q", place("国内"))
+	}
+
+	// A group with nothing in it moves at once.
+	if err := a.eng.SetGroupTarget("空", "direct"); err != nil {
+		t.Fatal(err)
+	}
+	tt = view(a, "规则")
+	if n := len(tt.Texts()); n == 0 {
+		t.Fatal("nothing drawn")
+	}
+}

@@ -102,6 +102,9 @@ func (a *app) domainsPage(c *ui.Context, st engine.State) {
 		a.newGroupForm(c, st)
 	})
 
+	if ui.AlertDialog(c, &a.retarget.open, "改变整个分组的去向？", a.retarget.msg, "取消", "改去向") == 1 {
+		a.domErr = errText(a.eng.SetGroupTarget(a.retarget.group, a.retarget.to))
+	}
 	switch ui.AlertDialog(c, &a.delAsk, "删除分组 "+a.delName+"？", "组里的域名会一起删除。", "取消", "删除") {
 	case 1:
 		a.domErr = errText(a.eng.DeleteGroup(a.delName))
@@ -123,7 +126,12 @@ func (a *app) groupCard(c *ui.Context, st engine.State, i int, g domains.Group) 
 			ui.Text(c, "→").FontSize(fsBody).TextColor(a.k.text2)
 			to := g.Target
 			if a.targetPicker(c, "g:"+g.Name, ts, &to, g.Name+"的去向") {
-				a.domErr = errText(a.eng.SetGroupTarget(g.Name, to))
+				if n := len(g.Domains) + len(g.Sets); n == 0 {
+					a.domErr = errText(a.eng.SetGroupTarget(g.Name, to))
+				} else { // all that is in it goes with it: ask first
+					a.retarget = retargetAsk{open: true, group: g.Name, to: to,
+						msg: fmt.Sprintf("%s 里有 %s，都会改为去 %s。", g.Name, holds(g), targetLabel(ts, to))}
+				}
 			}
 			a.iconButton(c, "ellipsis", g.Name+"的更多操作").Menu(func(m *ui.Menu) {
 				if m.Item("上移").Disabled(i == 0).Chosen() {
@@ -171,6 +179,25 @@ func (a *app) groupOverlaps(c *ui.Context, st engine.State, g domains.Group) {
 			ui.Text(c, text).FontSize(fsMeta).TextColor(a.k.warn).Selectable()
 		})
 	}
+}
+
+// retargetAsk is a group's place being changed, which moves everything in it.
+type retargetAsk struct {
+	open      bool
+	group, to string
+	msg       string
+}
+
+// holds says what a group holds, as "2 个域名、1 个规则集".
+func holds(g domains.Group) string {
+	var parts []string
+	if n := len(g.Domains); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个域名", n))
+	}
+	if n := len(g.Sets); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个规则集", n))
+	}
+	return strings.Join(parts, "、")
 }
 
 // groupSets shows the rule sets a group holds, and a search to add more: what
