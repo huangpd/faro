@@ -128,6 +128,15 @@ func (a *app) lane(c *ui.Context, st engine.State, r rules.Route, hue ui.Color) 
 				a.nodeChips(c, st, r.Nodes, r.Chosen, r.Fast, func(tag string) { a.eng.Choose(r.ID, tag) })
 			}
 		})
+		if !blocked {
+			mode := globeLive
+			if r.Closed {
+				mode = globeClosed
+			}
+			ui.Column(c).Padding(8, 14, 8, 0).Justify(ui.Center).Children(func() {
+				a.laneGlobe(c, hue, laneExitPlace(st, r), mode)
+			})
+		}
 	})
 }
 
@@ -217,6 +226,9 @@ func (a *app) mainLane(c *ui.Context, st engine.State) {
 			if a.expanded[singcfg.TagProxy] {
 				a.groupedChips(c, st, cur(st), func(tag string) { a.eng.Choose(singcfg.TagProxy, tag) })
 			}
+		})
+		ui.Column(c).Padding(8, 14, 8, 0).Justify(ui.Center).Children(func() {
+			a.laneGlobe(c, a.k.accent, mainExitPlace(st), globeLive)
 		})
 	})
 }

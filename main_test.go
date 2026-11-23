@@ -15,7 +15,9 @@ import (
 	"faro/internal/clashapi"
 	"faro/internal/engine"
 	"faro/internal/fixtures"
+	"faro/internal/geo"
 	"faro/internal/presets"
+	"faro/internal/rules"
 )
 
 // The view runs without a window in tests, which click and read it as a
@@ -1258,5 +1260,59 @@ func TestChangingAGroupsPlaceAsksFirstWhenItHoldsSomething(t *testing.T) {
 	tt = view(a, "规则")
 	if n := len(tt.Texts()); n == 0 {
 		t.Fatal("nothing drawn")
+	}
+}
+
+func TestLanesShowWhereTheirExitIs(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01", "🇩🇪 Frankfurt 01", "🇭🇰 Hong Kong 01", "Mystery Node")
+	usePreset(t, a, "ai-accounts")
+	st := a.eng.State()
+	var claude, google *rules.Route
+	for i := range st.Plan.Routes {
+		switch st.Plan.Routes[i].ID {
+		case "claude":
+			claude = &st.Plan.Routes[i]
+		case "google":
+			google = &st.Plan.Routes[i]
+		}
+	}
+	uk, _ := geo.Place("UK")
+	de, _ := geo.Place("DE")
+	if p := laneExitPlace(st, *claude); p == nil || *p != uk {
+		t.Errorf("claude's exit is at %v, want London %v", p, uk)
+	}
+	if p := laneExitPlace(st, *google); p == nil || *p != de {
+		t.Errorf("google's exit is at %v, want Germany %v", p, de)
+	}
+	// A gate that is shut, or no node, is no place to go.
+	shut := *claude
+	shut.Closed = true
+	if laneExitPlace(st, shut) != nil {
+		t.Error("a shut gate has an exit on the globe")
+	}
+	if laneExitPlace(st, rules.Route{ID: "none"}) != nil {
+		t.Error("a route with no nodes has an exit on the globe")
+	}
+	// A node of no country, alone, has no place; a delay picks the fastest of several.
+	if p, ok := exitPlace(st, "Mystery Node", nil); ok {
+		t.Errorf("a node of no country has a place: %v", p)
+	}
+	hk, _ := geo.Place("HK")
+	st.Delays = map[string]int{"🇬🇧 London 01": 300, "🇭🇰 Hong Kong 01": 40}
+	if p, ok := exitPlace(st, "", []string{"🇬🇧 London 01", "🇭🇰 Hong Kong 01"}); !ok || p != hk {
+		t.Errorf("fastest is Hong Kong: %v", p)
+	}
+	if main := mainExitPlace(st); main == nil {
+		t.Error("the main lane has no exit on the globe")
+	}
+
+	// The page draws, with the globes, in either state.
+	tt := view(a, "现在")
+	need(t, tt, "claude", "google")
+	a.eng.SetGate("claude", true)
+	view(a, "现在")
+	if tt.Image() == nil {
+		t.Error("nothing drawn")
 	}
 }

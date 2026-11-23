@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 
 	"faro/internal/engine"
+	"faro/internal/geo"
 	"faro/internal/rules"
 )
 
@@ -34,6 +35,8 @@ type app struct {
 	menuSig string // what the tray's menu was last built from
 	title   string // the menu-bar title last set
 	titleAt time.Time
+
+	here *geo.Point // where this Mac is taken to be, for the globes
 
 	k    tokens // the design tokens of this frame
 	page page
