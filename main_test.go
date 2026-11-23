@@ -1279,20 +1279,20 @@ func TestLanesShowWhereTheirExitIs(t *testing.T) {
 	}
 	uk, _ := geo.Place("UK")
 	de, _ := geo.Place("DE")
-	if p := laneExitPlace(st, *claude); p == nil || *p != uk {
-		t.Errorf("claude's exit is at %v, want London %v", p, uk)
+	if p, id := laneExitPlace(st, *claude); p == nil || *p != uk || id != "UK" {
+		t.Errorf("claude's exit is at %v (%s), want London %v", p, id, uk)
 	}
-	if p := laneExitPlace(st, *google); p == nil || *p != de {
-		t.Errorf("google's exit is at %v, want Germany %v", p, de)
+	if p, id := laneExitPlace(st, *google); p == nil || *p != de || id != "DE" {
+		t.Errorf("google's exit is at %v (%s), want Germany %v", p, id, de)
 	}
 	// A gate that is shut, or no node, is no place to go.
 	shut := *claude
 	shut.Closed = true
-	if laneExitPlace(st, shut) != nil {
-		t.Error("a shut gate has an exit on the globe")
+	if p, _ := laneExitPlace(st, shut); p != nil {
+		t.Error("a shut gate has an exit on the map")
 	}
-	if laneExitPlace(st, rules.Route{ID: "none"}) != nil {
-		t.Error("a route with no nodes has an exit on the globe")
+	if p, _ := laneExitPlace(st, rules.Route{ID: "none"}); p != nil {
+		t.Error("a route with no nodes has an exit on the map")
 	}
 	// A node of no country, alone, has no place; a delay picks the fastest of several.
 	if p, ok := exitPlace(st, "Mystery Node", nil); ok {
@@ -1303,11 +1303,11 @@ func TestLanesShowWhereTheirExitIs(t *testing.T) {
 	if p, ok := exitPlace(st, "", []string{"🇬🇧 London 01", "🇭🇰 Hong Kong 01"}); !ok || p != hk {
 		t.Errorf("fastest is Hong Kong: %v", p)
 	}
-	if main := mainExitPlace(st); main == nil {
-		t.Error("the main lane has no exit on the globe")
+	if main, _ := mainExitPlace(st); main == nil {
+		t.Error("the main lane has no exit on the map")
 	}
 
-	// The page draws, with the globes, in either state.
+	// The page draws, with the maps, in either state.
 	tt := view(a, "现在")
 	need(t, tt, "claude", "google")
 	a.eng.SetGate("claude", true)

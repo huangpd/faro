@@ -129,12 +129,13 @@ func (a *app) lane(c *ui.Context, st engine.State, r rules.Route, hue ui.Color) 
 			}
 		})
 		if !blocked {
-			mode := globeLive
+			mode := mapLive
 			if r.Closed {
-				mode = globeClosed
+				mode = mapClosed
 			}
-			ui.Column(c).Padding(8, 14, 8, 0).Justify(ui.Center).Children(func() {
-				a.laneGlobe(c, r.ID, hue, laneExitPlace(st, r), mode)
+			exit, label := laneExitPlace(st, r)
+			ui.Column(c).Padding(10, 14, 10, 0).Justify(ui.Center).Children(func() {
+				a.laneMap(c, r.ID, hue, exit, label, mode)
 			})
 		}
 	})
@@ -227,8 +228,9 @@ func (a *app) mainLane(c *ui.Context, st engine.State) {
 				a.groupedChips(c, st, cur(st), func(tag string) { a.eng.Choose(singcfg.TagProxy, tag) })
 			}
 		})
-		ui.Column(c).Padding(8, 14, 8, 0).Justify(ui.Center).Children(func() {
-			a.laneGlobe(c, singcfg.TagProxy, a.k.accent, mainExitPlace(st), globeLive)
+		exit, label := mainExitPlace(st)
+		ui.Column(c).Padding(10, 14, 10, 0).Justify(ui.Center).Children(func() {
+			a.laneMap(c, singcfg.TagProxy, a.k.accent, exit, label, mapLive)
 		})
 	})
 }

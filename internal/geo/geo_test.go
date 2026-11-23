@@ -6,22 +6,32 @@ import (
 	"time"
 )
 
-func near(t *testing.T, what string, got, want, eps float64) {
-	t.Helper()
-	if math.Abs(got-want) > eps {
-		t.Errorf("%s = %v, want %v", what, got, want)
+func TestLandIsWhereLandIs(t *testing.T) {
+	if len(Land) < 5000 {
+		t.Errorf("%d land cells", len(Land))
 	}
-}
-
-func TestDataIsThere(t *testing.T) {
-	if len(Land) < 800 {
-		t.Errorf("%d land dots", len(Land))
+	has := func(lat, lon, within float64) bool {
+		for _, p := range Land {
+			if math.Abs(p.Lat-lat) <= within && math.Abs(p.Lon-lon) <= within {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(51.5, 0, 3) || !has(31, 121, 3) || !has(39, -98, 3) {
+		t.Error("London, Shanghai and the middle of the US should be land")
+	}
+	if has(0, -150, 8) || has(-45, -120, 8) {
+		t.Error("the Pacific should not be land")
 	}
 	for _, p := range Land {
 		if p.Lat < -90 || p.Lat > 90 || p.Lon < -180 || p.Lon > 180 {
-			t.Fatalf("dot %v is not on the Earth", p)
+			t.Fatalf("cell %v is not on the Earth", p)
 		}
 	}
+}
+
+func TestPlaces(t *testing.T) {
 	for _, id := range []string{"HK", "uk", "DE", "SG", "US", "JP"} {
 		if _, ok := Place(id); !ok {
 			t.Errorf("no place for %s", id)
@@ -30,61 +40,61 @@ func TestDataIsThere(t *testing.T) {
 	if _, ok := Place("ZZ"); ok {
 		t.Error("a place for ZZ")
 	}
-	// Dots lie on land: London is among the dots near 51N, and the middle of the Pacific has none.
-	near51, pacific := false, false
-	for _, p := range Land {
-		if math.Abs(p.Lat-51.5) < 3 && math.Abs(p.Lon-0) < 4 {
-			near51 = true
-		}
-		if math.Abs(p.Lat-0) < 8 && math.Abs(p.Lon+150) < 8 {
-			pacific = true
-		}
-	}
-	if !near51 || pacific {
-		t.Errorf("land is off: london %v, mid-pacific %v", near51, pacific)
-	}
 }
 
-func TestDistanceMidAndProjection(t *testing.T) {
+func TestFrameShowsBothPlacesAndGoesTheShortWayRound(t *testing.T) {
+	const aspect = 2.0
+	check := func(name string, a, b Point) Viewport {
+		t.Helper()
+		v := Frame(a, b, aspect, 40)
+		for _, p := range []Point{a, b} {
+			x, y := v.XY(p)
+			if x < 0.05 || x > 0.95 || y < 0.05 || y > 0.95 {
+				t.Errorf("%s: %v is at %.2f,%.2f, near or past the edge of %+v", name, p, x, y, v)
+			}
+		}
+		if math.Abs(v.SpanLon/v.SpanLat-aspect) > 0.01 {
+			t.Errorf("%s: the shape is %v", name, v.SpanLon/v.SpanLat)
+		}
+		return v
+	}
 	hk, _ := Place("HK")
 	uk, _ := Place("UK")
-	near(t, "HK-UK degrees", Distance(hk, uk), 82, 8)
-	near(t, "distance to itself", Distance(hk, hk), 0, 1e-6)
-	m := Mid(hk, uk)
-	near(t, "half way", Distance(hk, m), Distance(hk, uk)/2, 0.01)
-	near(t, "half way, other end", Distance(uk, m), Distance(hk, uk)/2, 0.01)
-
-	v := ViewOf(Point{20, 30})
-	mid := v.Project(Point{20, 30}, 1)
-	near(t, "centre x", mid.X, 0, 1e-9)
-	near(t, "centre y", mid.Y, 0, 1e-9)
-	near(t, "centre depth", mid.Depth, 1, 1e-9)
-	east := v.Project(Point{20, 120}, 1) // a quarter turn away: on the edge, on the right
-	if east.X < 0.9 || math.Abs(east.Depth) > 0.4 {
-		t.Errorf("east %+v", east)
+	us, _ := Place("US")
+	sg, _ := Place("SG")
+	check("hk-uk", hk, uk)
+	check("sg-hk", sg, hk)
+	// Across the Pacific, not the long way over Asia and Europe and the Atlantic.
+	v := check("hk-us", hk, us)
+	if v.Lon < 150 && v.Lon > -150 {
+		t.Errorf("the middle of a route over the Pacific is at %v", v.Lon)
 	}
-	if far := v.Project(Point{-20, -150}, 1); far.Depth >= 0 {
-		t.Errorf("the other side of the Earth is in front: %+v", far)
+	// Two near places are not blown up, and the same place is shown.
+	near := Frame(hk, sg, aspect, 40)
+	if near.SpanLon < 40 {
+		t.Errorf("span %v", near.SpanLon)
+	}
+	same := check("same", hk, hk)
+	if same.SpanLon < 40 {
+		t.Errorf("span %v", same.SpanLon)
+	}
+	// Never past the poles, however far north the places are.
+	north := Frame(Point{Lat: 70, Lon: 20}, Point{Lat: 69, Lon: 25}, aspect, 40)
+	if north.Lat+north.SpanLat/2 > 90 || north.Lat-north.SpanLat/2 < -90 {
+		t.Errorf("north %+v", north)
 	}
 }
 
-func TestArcLeavesAndComesBack(t *testing.T) {
-	a, b := Point{22.3, 114.2}, Point{51.5, -0.1}
-	pts, hs := Arc(a, b, 40, 0.3)
-	if len(pts) != 41 || len(hs) != 41 {
-		t.Fatal(len(pts), len(hs))
+func TestXYUnwrapsLongitude(t *testing.T) {
+	v := Viewport{Lon: 180, Lat: 0, SpanLon: 60, SpanLat: 30}
+	x1, _ := v.XY(Point{0, 170})
+	x2, _ := v.XY(Point{0, -170}) // 190 degrees east: the other side of the date line
+	if math.Abs(x1-(0.5-10.0/60)) > 1e-9 || math.Abs(x2-(0.5+10.0/60)) > 1e-9 {
+		t.Errorf("x %v %v", x1, x2)
 	}
-	near(t, "start lat", pts[0].Lat, a.Lat, 1e-6)
-	near(t, "end lat", pts[40].Lat, b.Lat, 1e-6)
-	near(t, "start lon", pts[0].Lon, a.Lon, 1e-6)
-	near(t, "end lon", pts[40].Lon, b.Lon, 1e-6)
-	near(t, "on the ground at the start", hs[0], 1, 1e-9)
-	near(t, "on the ground at the end", hs[40], 1, 1e-9)
-	near(t, "highest half way", hs[20], 1.3, 1e-9)
-	near(t, "the middle is the midpoint", Distance(pts[20], Mid(a, b)), 0, 0.01)
-	// The same place at both ends does not divide by nothing.
-	same, _ := Arc(a, a, 4, 0.3)
-	near(t, "a point", same[2].Lat, a.Lat, 1e-6)
+	if x, y := v.XY(Point{0, 180}); x != 0.5 || y != 0.5 {
+		t.Errorf("the middle is at %v,%v", x, y)
+	}
 }
 
 func TestHereKnowsAZoneAndGuessesTheRest(t *testing.T) {

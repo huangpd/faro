@@ -1,6 +1,6 @@
-// Package geo is the little geography the globe needs: where the land is,
+// Package geo is the little geography the map needs: where the land is,
 // where a region's nodes are taken to be, where this Mac is taken to be, and
-// the arc between two places. It is all data embedded in the app; nothing is
+// the part of the map to show for two places. It is all data embedded in the app; nothing is
 // looked up from the network, and nothing of the person's is sent anywhere.
 package geo
 
@@ -25,21 +25,26 @@ var zonesText string
 // Point is a place on the Earth, in degrees.
 type Point struct{ Lat, Lon float64 }
 
-// Land is dots spread evenly over the land of the Earth.
-var Land = parsePoints(landText, 0)
+// Cell is the size of a cell of the land grid, in degrees.
+const Cell = 1.5
 
-func parsePoints(text string, skip int) []Point {
+// Land is the middle of each cell of the grid that is land.
+var Land = parseLand(landText)
+
+func parseLand(text string) []Point {
 	var out []Point
+	row := 0
 	for _, line := range strings.Split(text, "\n") {
-		f := strings.Fields(line)
-		if len(f) < 2+skip || strings.HasPrefix(f[0], "#") {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		la, err1 := strconv.ParseFloat(f[skip], 64)
-		lo, err2 := strconv.ParseFloat(f[skip+1], 64)
-		if err1 == nil && err2 == nil {
-			out = append(out, Point{la, lo})
+		lat := 85 - Cell*(float64(row)+0.5)
+		for col, ch := range line {
+			if ch == '#' {
+				out = append(out, Point{lat, -180 + Cell*(float64(col)+0.5)})
+			}
 		}
+		row++
 	}
 	return out
 }
@@ -102,72 +107,50 @@ func ZoneOf(name string, now time.Time) (Point, bool) {
 	return Point{Lat: 35, Lon: float64(off) / 3600 * 15}, true
 }
 
-// vec is a point as a unit vector.
-func vec(p Point) [3]float64 {
-	la, lo := rad(p.Lat), rad(p.Lon)
-	return [3]float64{math.Cos(la) * math.Cos(lo), math.Cos(la) * math.Sin(lo), math.Sin(la)}
-}
+// Viewport is the part of the flat map that is shown: its middle, and how many
+// degrees it spans across and up.
+type Viewport struct{ Lon, Lat, SpanLon, SpanLat float64 }
 
-func rad(d float64) float64 { return d * math.Pi / 180 }
-
-// Distance is the angle between two places, in degrees.
-func Distance(a, b Point) float64 {
-	va, vb := vec(a), vec(b)
-	d := va[0]*vb[0] + va[1]*vb[1] + va[2]*vb[2]
-	return math.Acos(math.Max(-1, math.Min(1, d))) * 180 / math.Pi
-}
-
-// Mid is the point halfway along the shortest way between two places.
-func Mid(a, b Point) Point {
-	va, vb := vec(a), vec(b)
-	m := [3]float64{va[0] + vb[0], va[1] + vb[1], va[2] + vb[2]}
-	n := math.Sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2])
-	if n < 1e-9 { // opposite sides: any way round is as short
-		return Point{Lat: 90, Lon: 0}
+// wrap puts a longitude within 180 degrees of the middle.
+func wrap(lon, mid float64) float64 {
+	d := math.Mod(lon-mid, 360)
+	if d > 180 {
+		d -= 360
+	} else if d < -180 {
+		d += 360
 	}
-	return Point{math.Asin(m[2]/n) * 180 / math.Pi, math.Atan2(m[1], m[0]) * 180 / math.Pi}
+	return mid + d
 }
 
-// Spot is a place on the globe's face as seen from a view: x to the right and y
-// up, both from the middle, in fractions of the radius; Depth is how far toward
-// the viewer it is, below 0 on the far side.
-type Spot struct{ X, Y, Depth float64 }
-
-// View is where the globe is looked at from: the place at its middle.
-type View struct{ sinLa, cosLa, lon float64 }
-
-// ViewOf looks at the Earth with p in the middle.
-func ViewOf(p Point) View { return View{math.Sin(rad(p.Lat)), math.Cos(rad(p.Lat)), rad(p.Lon)} }
-
-// Project places a point, raised to height radius above the surface (1 is on it).
-func (v View) Project(p Point, height float64) Spot {
-	la, dl := rad(p.Lat), rad(p.Lon)-v.lon
-	sl, cl := math.Sin(la), math.Cos(la)
-	return Spot{
-		X:     height * cl * math.Sin(dl),
-		Y:     height * (v.cosLa*sl - v.sinLa*cl*math.Cos(dl)),
-		Depth: height * (v.sinLa*sl + v.cosLa*cl*math.Cos(dl)),
+// Frame is the part of the map that shows two places with room round them, at
+// the shape aspect (width over height). It goes the short way round the Earth,
+// so that a route over the Pacific is not drawn across the whole map, and shows
+// at least minSpan degrees across, so that two near places are not blown up.
+func Frame(a, b Point, aspect, minSpan float64) Viewport {
+	b.Lon = wrap(b.Lon, a.Lon)
+	w := math.Abs(b.Lon-a.Lon)*1.5 + 24
+	h := math.Abs(b.Lat-a.Lat)*1.9 + 14
+	span := math.Max(math.Max(w, h*aspect), minSpan)
+	span = math.Min(span, 360)
+	v := Viewport{
+		Lon: (a.Lon + b.Lon) / 2, Lat: (a.Lat + b.Lat) / 2,
+		SpanLon: span, SpanLat: span / aspect,
 	}
+	if v.SpanLat > 160 {
+		v.SpanLat, v.SpanLon = 160, 160*aspect
+	}
+	// Keep the middle where there is map to show.
+	if lim := 85 - v.SpanLat/2; v.Lat > lim {
+		v.Lat = lim
+	} else if lim := -65 + v.SpanLat/2; v.Lat < lim {
+		v.Lat = lim
+	}
+	return v
 }
 
-// Arc is n+1 points from a to b along the shortest way, with the height each is
-// raised to: the arc lifts off the surface and comes back, as flight paths are
-// drawn, peaking at 1+lift halfway.
-func Arc(a, b Point, n int, lift float64) (pts []Point, heights []float64) {
-	va, vb := vec(a), vec(b)
-	d := math.Acos(math.Max(-1, math.Min(1, va[0]*vb[0]+va[1]*vb[1]+va[2]*vb[2])))
-	for i := 0; i <= n; i++ {
-		t := float64(i) / float64(n)
-		var v [3]float64
-		if d < 1e-6 {
-			v = va
-		} else {
-			s := math.Sin(d)
-			wa, wb := math.Sin((1-t)*d)/s, math.Sin(t*d)/s
-			v = [3]float64{wa*va[0] + wb*vb[0], wa*va[1] + wb*vb[1], wa*va[2] + wb*vb[2]}
-		}
-		pts = append(pts, Point{math.Asin(math.Max(-1, math.Min(1, v[2]))) * 180 / math.Pi, math.Atan2(v[1], v[0]) * 180 / math.Pi})
-		heights = append(heights, 1+lift*math.Sin(math.Pi*t))
-	}
-	return pts, heights
+// XY places a point on the viewport: x and y in fractions of its width and
+// height from the top left, outside 0..1 when it is off the part shown.
+func (v Viewport) XY(p Point) (x, y float64) {
+	lon := wrap(p.Lon, v.Lon)
+	return 0.5 + (lon-v.Lon)/v.SpanLon, 0.5 - (p.Lat-v.Lat)/v.SpanLat
 }
