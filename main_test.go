@@ -1136,3 +1136,45 @@ func TestRulesEditorKeepsTheTextAndMarksMistakes(t *testing.T) {
 		t.Errorf("typing did not reach the text: %q", a.rulesEdit)
 	}
 }
+
+func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
+	a := newTestApp(t)
+	if err := a.eng.NewGroup("AI", "direct", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	tt := view(a, "规则")
+	if tt.HasText("没有匹配的规则集") || tt.HasText("已在组里") {
+		t.Error("nothing is searched for, and nothing is shown")
+	}
+
+	q := "gemini"
+	a.setQuery["AI"] = &q
+	tt = view(a, "规则")
+	need(t, tt, "google-gemini", "添加")
+	for _, txt := range tt.Texts() {
+		if strings.Contains(txt, "geosite-") {
+			t.Errorf("the shared prefix is shown: %q", txt)
+		}
+	}
+	tt.Click("添加")
+	wait(t, "the set in the group", func() bool { return len(a.eng.State().Groups[0].Sets) == 1 })
+	if a.eng.State().Groups[0].Sets[0] != "geosite-google-gemini" || q != "" {
+		t.Errorf("sets %v, search %q", a.eng.State().Groups[0].Sets, q)
+	}
+	tt = view(a, "规则")
+	need(t, tt, "google-gemini") // held: a chip now, with its size
+	found := false
+	for _, txt := range tt.Texts() {
+		found = found || strings.HasSuffix(txt, " KB")
+	}
+	if !found {
+		t.Error("the set's size is not shown")
+	}
+
+	q = "zzzz-nothing"
+	need(t, view(a, "规则"), "没有匹配的规则集")
+	a.eng.RemoveSet("AI", "geosite-google-gemini")
+	if tt := view(a, "规则"); tt.HasText("google-gemini") {
+		t.Error("a removed set is still shown")
+	}
+}

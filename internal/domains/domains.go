@@ -20,6 +20,8 @@ type Group struct {
 	Name    string   `json:"name"`
 	Target  string   `json:"target"`
 	Domains []string `json:"domains"`
+	// Sets are rule sets, by name, that stand for many sites at once.
+	Sets []string `json:"sets,omitempty"`
 }
 
 var label = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -115,6 +117,15 @@ func Head(groups []Group) (text string, owners []int) {
 			b.WriteString("\n")
 			owners = append(owners, gi)
 		}
+		for i := 0; i < len(g.Sets); i += perLine {
+			end := min(i+perLine, len(g.Sets))
+			b.WriteString(g.Target)
+			for _, s := range g.Sets[i:end] {
+				b.WriteString(" set:" + s)
+			}
+			b.WriteString("\n")
+			owners = append(owners, gi)
+		}
 	}
 	return b.String(), owners
 }
@@ -156,7 +167,7 @@ func Save(path string, groups []Group) error {
 func Copy(groups []Group) []Group {
 	out := make([]Group, len(groups))
 	for i, g := range groups {
-		out[i] = Group{g.Name, g.Target, append([]string(nil), g.Domains...)}
+		out[i] = Group{g.Name, g.Target, append([]string(nil), g.Domains...), append([]string(nil), g.Sets...)}
 	}
 	return out
 }

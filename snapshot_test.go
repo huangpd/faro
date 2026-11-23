@@ -36,6 +36,13 @@ func TestSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, name := range []string{"geosite-google", "geosite-google-gemini"} {
+		if err := a.eng.AddSet(a.eng.State().Groups[0].Name, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	search := "goo"
+	a.setQuery[a.eng.State().Groups[0].Name] = &search
 	a.eng.Start()
 	wait(t, "running", func() bool { return a.eng.State().Status == engine.Running })
 

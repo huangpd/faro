@@ -132,7 +132,7 @@ func Update(ctx context.Context, dir string, proxyPort int) (Result, error) {
 	}
 	var res Result
 	var errs []error
-	for name, repo := range Files {
+	for name, repo := range wanted(dir) {
 		var last error
 		for _, u := range mirrorURLs(repo, name) {
 			changed, err := fetch(ctx, client, u, filepath.Join(dir, name+".srs"))
@@ -151,6 +151,21 @@ func Update(ctx context.Context, dir string, proxyPort int) (Result, error) {
 		}
 	}
 	return res, errors.Join(errs...)
+}
+
+// wanted is every rule set to keep current: those Faro knows, and any that was
+// installed besides, such as one a person added.
+func wanted(dir string) map[string]string {
+	m := map[string]string{}
+	for n, r := range Files {
+		m[n] = r
+	}
+	for n := range Paths(dir) {
+		if r, ok := RepoOf(n); ok {
+			m[n] = r
+		}
+	}
+	return m
 }
 
 // fetch downloads one rule set to a file and says whether the file changed.

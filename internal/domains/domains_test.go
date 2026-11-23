@@ -79,7 +79,7 @@ func TestSaveAndLoad(t *testing.T) {
 	if g, err := Load(p); err != nil || g != nil {
 		t.Fatalf("a missing file is no groups: %v %v", g, err)
 	}
-	in := []Group{{"AI", "claude", []string{"a.com"}}, {"直连", "direct", nil}}
+	in := []Group{{"AI", "claude", []string{"a.com"}, []string{"geosite-x"}}, {"直连", "direct", nil, nil}}
 	if err := Save(p, in); err != nil {
 		t.Fatal(err)
 	}
@@ -91,5 +91,21 @@ func TestSaveAndLoad(t *testing.T) {
 	c[0].Domains[0] = "changed.com"
 	if out[0].Domains[0] != "a.com" {
 		t.Error("the copy shares its sites")
+	}
+}
+
+func TestHeadWritesSetsAfterTheSitesOfTheirGroup(t *testing.T) {
+	head, owners := Head([]Group{
+		{Name: "g", Target: "claude", Domains: []string{"a.com"}, Sets: []string{"geosite-x", "geosite-y@cn"}},
+		{Name: "h", Target: "direct", Sets: []string{"geosite-z"}},
+	})
+	want := "claude domain:a.com\nclaude set:geosite-x set:geosite-y@cn\ndirect set:geosite-z\n"
+	if head != want || !reflect.DeepEqual(owners, []int{0, 0, 1}) {
+		t.Errorf("head %q owners %v", head, owners)
+	}
+	c := Copy([]Group{{Name: "g", Sets: []string{"geosite-x"}}})
+	c[0].Sets[0] = "changed"
+	if Copy(c)[0].Sets[0] != "changed" {
+		t.Error("copy keeps sets")
 	}
 }

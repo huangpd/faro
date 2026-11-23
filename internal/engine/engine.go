@@ -60,7 +60,11 @@ type Options struct {
 	RuleSetsFirst    time.Duration // the first look after the app starts: a little while
 	RuleSetsInterval time.Duration // then a look this often: an hour
 	RuleSetsRetry    time.Duration // after a failure, not again within this: an hour
-	Now              func() time.Time
+	// FetchSet fetches one rule set a person adds; FetchCatalog the list of names
+	// they can search. For tests; zero values give the real ones.
+	FetchSet     func(ctx context.Context, dir, name string, proxyPort int) error
+	FetchCatalog func(ctx context.Context, dir string, proxyPort int) ([]string, error)
+	Now          func() time.Time
 	// ProbeURL is what a node is tested against; empty is singcfg.ProbeURL. For tests.
 	ProbeURL string
 	// Probe times one node through the running core: ms, or an error. Nil asks the
@@ -119,6 +123,7 @@ type State struct {
 	// last time they were fetched, or the date of the copy that shipped.
 	RuleSetsChecked time.Time
 	DataDir         string
+	CatalogErr      string // why the list of rule sets could not be fetched, "" if it could
 }
 
 // Engine runs Faro.
@@ -130,6 +135,11 @@ type Engine struct {
 	proxy *sysproxy.Manager
 
 	setsDir string
+
+	catalog      []string // the rule sets that can be searched for
+	catalogBusy  bool
+	catalogErr   string
+	catalogTried time.Time
 
 	mu            sync.Mutex
 	status        string
@@ -163,6 +173,12 @@ type Engine struct {
 // New opens Faro's data, puts back a system proxy that a crashed run left
 // set, and returns the engine, stopped.
 func New(opts Options) (*Engine, error) {
+	if opts.FetchSet == nil {
+		opts.FetchSet = ruleset.FetchOne
+	}
+	if opts.FetchCatalog == nil {
+		opts.FetchCatalog = ruleset.FetchCatalog
+	}
 	if opts.FetchRuleSets == nil {
 		opts.FetchRuleSets = ruleset.Update
 	}
@@ -217,6 +233,7 @@ func New(opts Options) (*Engine, error) {
 	if err := ruleset.Install(opts.ResourcesDir, e.setsDir); err != nil {
 		e.err = "rule sets: " + err.Error()
 	}
+	e.catalog = ruleset.LoadCatalog(e.setsDir)
 	e.rulesText = presets.Base()
 	if b, err := os.ReadFile(filepath.Join(dir, "rules.txt")); err == nil {
 		e.rulesText = string(b)
@@ -257,7 +274,7 @@ func (e *Engine) State() State {
 		SystemProxy: e.prefs.SystemProxy, LightMode: e.prefs.LightMode, MixedPort: e.prefs.MixedPort,
 		Notes: e.core.Notes(), DataDir: e.core.Dir(),
 		DNS:             singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign},
-		RuleSetsChecked: e.ruleSetsCheckedLocked(),
+		RuleSetsChecked: e.ruleSetsCheckedLocked(), CatalogErr: e.catalogErr,
 	}
 	return st
 }

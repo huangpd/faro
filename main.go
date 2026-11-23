@@ -56,6 +56,7 @@ type app struct {
 	domSel    map[string]*string   // the places' drop-downs, by group
 	domTokens map[string]*[]string // each group's sites, as the field holds them
 	domErr    string
+	setQuery  map[string]*string // each group's rule-set search
 	newGroup  newGroupDraft
 	delAsk    bool // asking before a group is deleted
 	delName   string
@@ -80,7 +81,7 @@ type app struct {
 }
 
 func newApp(eng *engine.Engine) *app {
-	return &app{eng: eng, expanded: map[string]bool{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, rulesEdit: eng.State().RulesText}
+	return &app{eng: eng, expanded: map[string]bool{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, rulesEdit: eng.State().RulesText}
 }
 
 // refresh redraws the window, when there is one, and the menu-bar item. It

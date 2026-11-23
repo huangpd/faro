@@ -1,11 +1,16 @@
 package main
 
 import (
+	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 
 	"faro/internal/domains"
 	"faro/internal/engine"
 	"faro/internal/rules"
+	"faro/internal/ruleset"
 )
 
 // The person's own sites, in groups: each group a name, a place its sites go
@@ -143,7 +148,77 @@ func (a *app) groupCard(c *ui.Context, st engine.State, i int, g domains.Group) 
 		if ui.TokenField(c, tok, []string{}).Label(g.Name + "的域名").Placeholder("添加域名").Changed() {
 			a.domErr = errText(a.eng.SetGroupDomains(g.Name, *tok))
 		}
+		a.groupSets(c, st, g)
 	})
+}
+
+// groupSets shows the rule sets a group holds, and a search to add more: what
+// is typed finds names in the list, and one click puts a set in the group.
+func (a *app) groupSets(c *ui.Context, st engine.State, g domains.Group) {
+	if len(g.Sets) > 0 {
+		ui.Row(c).Gap(6).Wrap().Children(func() {
+			for _, name := range g.Sets {
+				short := strings.TrimPrefix(name, "geosite-")
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(2, 4, 2, 10).Radius(999).Background(a.k.surface2).Border(1, a.k.border).Children(func() {
+					icon(c, "globe", 12, a.k.text2)
+					ui.Text(c, short).FontSize(fsMeta).Font(monoFont).SingleLine()
+					ui.Text(c, sizeText(ruleset.Size(a.eng.SetsDir(), name))).FontSize(fsCaption).TextColor(a.k.text2).SingleLine()
+					if a.iconButton(c, "x", "移除规则集 "+short).Clicked() {
+						a.domErr = errText(a.eng.RemoveSet(g.Name, name))
+					}
+				})
+			}
+		})
+	}
+	q := a.setQuery[g.Name]
+	if q == nil {
+		q = new(string)
+		a.setQuery[g.Name] = q
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		icon(c, "search", 14, a.k.text2)
+		ui.TextInput(c, q).Label(g.Name + "的规则集搜索").Placeholder("搜索规则集").Grow(1)
+	})
+	if strings.TrimSpace(*q) == "" {
+		return
+	}
+	a.eng.EnsureCatalog()
+	found := a.eng.SearchSets(*q)
+	if len(found) == 0 {
+		msg := "没有匹配的规则集"
+		if st.CatalogErr != "" {
+			msg = st.CatalogErr
+		}
+		ui.Text(c, msg).FontSize(fsMeta).TextColor(a.k.text2)
+		return
+	}
+	for _, name := range found {
+		held := slices.Contains(g.Sets, name)
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, strings.TrimPrefix(name, "geosite-")).FontSize(fsBody).Font(monoFont).Grow(1).SingleLine()
+			if n := ruleset.Size(a.eng.SetsDir(), name); n > 0 {
+				ui.Text(c, sizeText(n)).FontSize(fsCaption).TextColor(a.k.text2)
+			}
+			switch {
+			case held:
+				a.pill(c, "已在组里", a.k.accent)
+			case a.button(c, btnSecondary, "plus", "添加").Disabled(st.Busy != "").Clicked():
+				a.domErr = errText(a.eng.AddSet(g.Name, name))
+				*q = ""
+			}
+		})
+	}
+}
+
+// sizeText is the size of a file as a person reads it.
+func sizeText(n int64) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n < 1<<20:
+		return fmt.Sprintf("%d KB", max(1, n>>10))
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }
 
 // newGroupForm is a button that opens a card for the name and the place; sites

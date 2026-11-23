@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"faro/internal/sub"
 	"fmt"
 	"net"
@@ -24,6 +26,12 @@ import (
 // newEngine opens an engine in a private data directory, on the real core.
 func newEngine(t *testing.T, run func(args ...string) (string, error)) *Engine {
 	t.Helper()
+	return newEngineWith(t, run, nil)
+}
+
+// newEngineWith is newEngine with the options changed by set.
+func newEngineWith(t *testing.T, run func(args ...string) (string, error), set func(*Options)) *Engine {
+	t.Helper()
 	bin, _ := filepath.Abs("../../bin/sing-box")
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no bin/sing-box")
@@ -31,7 +39,11 @@ func newEngine(t *testing.T, run func(args ...string) (string, error)) *Engine {
 	res, _ := filepath.Abs("../../resources")
 	t.Setenv("FARO_CORE", bin)
 	t.Setenv("HOME", t.TempDir())
-	e, err := New(Options{ResourcesDir: res, ProxyRunner: run})
+	o := Options{ResourcesDir: res, ProxyRunner: run}
+	if set != nil {
+		set(&o)
+	}
+	e, err := New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -870,4 +882,102 @@ func TestLightModeIsKept(t *testing.T) {
 	if !e2.State().LightMode {
 		t.Error("not there after a restart of the app")
 	}
+}
+
+func TestRuleSetsAddedToGroups(t *testing.T) {
+	res, _ := filepath.Abs("../../resources/rulesets/geosite-xai.srs")
+	fetched := 0
+	fail := false
+	e := newEngineWith(t, (&fakeNetworksetup{}).run, func(o *Options) {
+		o.FetchSet = func(_ context.Context, dir, name string, _ int) error {
+			fetched++
+			if fail {
+				return errors.New("no route to host")
+			}
+			b, err := os.ReadFile(res)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dir, name+".srs"), b, 0o600)
+		}
+		o.FetchCatalog = func(context.Context, string, int) ([]string, error) { return []string{"geosite-zzz-found"}, nil }
+	})
+	e.addAndWait(t, subFile(t, "🇬🇧 London 01", "🇩🇪 Frankfurt 01"), 2)
+	if errs := e.ApplyRules(fixtures.AIAccounts()); errs != nil {
+		t.Fatal(errs)
+	}
+	if err := e.NewGroup("AI", "claude", "claude.ai"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.NewGroup("搜索", "direct", "intranet.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	idle := func() bool { return e.State().Busy == "" }
+
+	// A set that cannot be fetched is not added: its sites would go where the rest go.
+	fail = true
+	if err := e.AddSet("AI", "geosite-zzz-one"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the failed fetch", func() bool { return idle() && e.State().Err != "" })
+	if g := e.State().Groups[0]; len(g.Sets) != 0 {
+		t.Errorf("a set that was not fetched is in the group: %v", g.Sets)
+	}
+	if !strings.Contains(e.State().Err, "没有加入") {
+		t.Errorf("the error does not say it was not added: %q", e.State().Err)
+	}
+
+	fail = false
+	if err := e.AddSet("AI", "geosite-zzz-one"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the set", func() bool { return idle() && len(e.State().Groups[0].Sets) == 1 })
+	st := e.State()
+	if st.Err != "" {
+		t.Errorf("error %q", st.Err)
+	}
+	found := false
+	for _, r := range st.Plan.Rules {
+		for _, m := range r.Matchers {
+			if m.Kind == "rule_set" && len(m.Values) == 1 && m.Values[0] == "geosite-zzz-one" && r.Target == "route-claude" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("the set is not a rule that goes where the group goes")
+	}
+	if _, err := e.Preview(); err != nil {
+		t.Errorf("the config: %v", err)
+	}
+
+	// One set is in one group: adding it to another takes it from the first. It is
+	// here now, so it is not fetched again.
+	before := fetched
+	if err := e.AddSet("搜索", "geosite-zzz-one"); err != nil {
+		t.Fatal(err)
+	}
+	g := e.State().Groups
+	if len(g[0].Sets) != 0 || len(g[1].Sets) != 1 || fetched != before {
+		t.Errorf("groups %+v, fetched %d more times", g, fetched-before)
+	}
+
+	if err := e.RemoveSet("搜索", "geosite-zzz-one"); err != nil || len(e.State().Groups[1].Sets) != 0 {
+		t.Errorf("remove: %v %+v", err, e.State().Groups)
+	}
+	for _, bad := range []string{"geoip-cn", "geosite-../x", ""} {
+		if err := e.AddSet("AI", bad); err == nil {
+			t.Errorf("%q was taken", bad)
+		}
+	}
+	if err := e.AddSet("nope", "geosite-xai"); err == nil {
+		t.Error("a group that is not there was taken")
+	}
+
+	// The shipped names can be searched at once; the list is fetched once asked for.
+	if got := e.SearchSets("gemini"); len(got) == 0 || got[0] != "geosite-google-gemini" {
+		t.Errorf("search %v", got)
+	}
+	e.EnsureCatalog()
+	waitFor(t, "the list", func() bool { return len(e.SearchSets("zzz-found")) == 1 })
 }
