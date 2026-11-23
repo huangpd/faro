@@ -1346,7 +1346,7 @@ func TestTheLightRunsEveryFewSecondsAndTheMapRestsBetween(t *testing.T) {
 	}
 }
 
-func TestArcsAreOneLineAndRunOffTheMapWhereTheExitIsBeyondIt(t *testing.T) {
+func TestEveryArcIsOneLineAndTheMapClipsWhatRunsOffIt(t *testing.T) {
 	const left, width, height = float32(100), float32(250), float32(100)
 	here, _ := geo.Place("HK")
 	w := geo.WorldFrom(here, mapOrigin, mapSpan)
@@ -1357,7 +1357,7 @@ func TestArcsAreOneLineAndRunOffTheMapWhereTheExitIsBeyondIt(t *testing.T) {
 		ex = ax + float32(w.Reach(here, to))*width
 		return mapArc(ax, float32(fy)*height, ex, float32(ty)*height, 40), ex
 	}
-	// To the UK, west: one line, from here at the right to the UK well to the left of it.
+	// To the UK, west: one line, from here at the middle to the UK to the left of it.
 	uk, _ := geo.Place("UK")
 	pts, ex := ends(uk)
 	runs := visibleRuns(pts, left, width)
@@ -1370,26 +1370,27 @@ func TestArcsAreOneLineAndRunOffTheMapWhereTheExitIsBeyondIt(t *testing.T) {
 	if ex >= pts[0][0] || ex < left || lastVisible(pts, left, width) != len(pts)-1 {
 		t.Errorf("the UK is at %v, from %v", ex, pts[0][0])
 	}
-	// Every exit in Europe or Asia is on the map, the US is not.
-	for _, id := range []string{"DE", "NL", "FR", "JP", "SG", "HK", "KR", "AU", "IN"} {
+	// Every exit is on the map, and its arc is one line, whichever way round the
+	// Earth it is the short way: the UK and the US are on either side.
+	for _, id := range []string{"DE", "NL", "FR", "JP", "SG", "HK", "KR", "AU", "IN", "US", "BR", "CA", "ZA"} {
 		p, _ := geo.Place(id)
-		if _, x := ends(p); x < left || x > left+width {
+		pts, x := ends(p)
+		if x < left || x > left+width {
 			t.Errorf("%s is at %v: off the map", id, x)
 		}
+		if runs := visibleRuns(pts, left, width); len(runs) != 1 || len(runs[0]) != len(pts) {
+			t.Errorf("%s: the arc is %d lines", id, len(runs))
+		}
 	}
-	// To the US, east over the Pacific: the arc runs off the right edge.
 	us, _ := geo.Place("US")
-	pts, ex = ends(us)
-	if ex <= left+width {
-		t.Fatalf("the US is at %v, on the map", ex)
+	if _, x := ends(us); x <= left+width/2 {
+		t.Errorf("the US is at %v: it is east of here, to the right", x)
 	}
-	runs = visibleRuns(pts, left, width)
-	if len(runs) != 1 {
-		t.Fatalf("%d lines", len(runs))
-	}
-	last := lastVisible(pts, left, width)
-	if last <= 0 || last == len(pts)-1 || pts[last][0] > left+width {
-		t.Errorf("the arc stops at point %d of %d, at %v", last, len(pts), pts[last][0])
+	// Were the map narrower, an arc runs off its edge and the line stops there.
+	pts = [][2]float32{{50, 10}, {90, 5}, {130, 5}, {170, 10}, {210, 20}}
+	runs = visibleRuns(pts, 100, 100)
+	if len(runs) != 1 || len(runs[0]) != 2 || lastVisible(pts, 100, 100) != 3 {
+		t.Errorf("clipped to the map: %v, last visible %d", runs, lastVisible(pts, 100, 100))
 	}
 	// An arc to the same place is a point.
 	same, _ := ends(here)

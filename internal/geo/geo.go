@@ -115,8 +115,8 @@ type World struct{ L0, Span float64 }
 
 // Top and Bottom are the latitudes the map shows, from north to south.
 const (
-	Top    = 70.0
-	Bottom = -32.0
+	Top    = 78.0
+	Bottom = -61.0
 )
 
 // WorldFrom frames a span of degrees so that origin is x0 of the way from the left.

@@ -90,6 +90,25 @@ func TestTheMapIsFramedTheSameWithTheOriginAtTheRight(t *testing.T) {
 	}
 }
 
+func TestAMapAllTheWayRoundHasEveryPlaceOnIt(t *testing.T) {
+	here, _ := Place("HK")
+	w := WorldFrom(here, 0.5, 360)
+	for _, id := range []string{"US", "UK", "DE", "JP", "AU", "BR", "ZA", "CA", "CL", "NZ"} {
+		p, _ := Place(id)
+		x, y := w.XY(p)
+		if x < 0 || x > 1 || y < 0 || y > 1 {
+			t.Errorf("%s is at %v,%v", id, x, y)
+		}
+		if r := w.Reach(here, p); math.Abs(r) > 0.5+1e-9 {
+			t.Errorf("%s is %v widths from here", id, r)
+		}
+		// The arc's end, from the origin's place across, is on the map.
+		if end := 0.5 + w.Reach(here, p); end < -1e-9 || end > 1+1e-9 {
+			t.Errorf("%s ends at %v", id, end)
+		}
+	}
+}
+
 func TestCoarseLandKeepsTheShapeOfTheWorld(t *testing.T) {
 	if len(Coarse) < 1200 || len(Coarse) > 4000 {
 		t.Errorf("%d coarse cells", len(Coarse))

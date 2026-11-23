@@ -19,11 +19,13 @@ import (
 // It is drawn from data in the app; nothing is looked up from the network.
 
 const (
-	mapW, mapH = 220, 112
-	// The map shows mapSpan degrees of longitude: Europe at the left, this Mac at
-	// mapOrigin of the way across. A place beyond the right edge is marked at the edge.
-	mapSpan   = 200.0
-	mapOrigin = 0.78
+	mapW, mapH = 300, 116
+	// The map shows mapSpan degrees of longitude, this Mac at mapOrigin of the way
+	// across. All the way round with this Mac in the middle, every place is within
+	// half the Earth of it, so every arc is one line. A place beyond an edge, were the
+	// map made narrower, is marked at the edge.
+	mapSpan   = 360.0
+	mapOrigin = 0.5
 	// mapScale is how many pixels the still layer has to a DIP: enough for sharp dots
 	// on a screen that shows two.
 	mapScale = 2
@@ -222,7 +224,7 @@ func lastVisible(pts [][2]float32, left, width float32) int {
 // paintLand paints the land as dots, k pixels to a DIP.
 func (a *app) paintLand(p *ui.Painter, world geo.World, w, h, k float32) {
 	pitch := float32(geo.CoarseCell/world.Span) * w // how far apart the dots are
-	sz := min(k*2.2, pitch*0.62)
+	sz := min(k*1.9, pitch*0.7)
 	for _, c := range geo.Coarse {
 		x, y := world.XY(c)
 		if x > 1.01 || y < -0.01 || y > 1.01 {
