@@ -103,6 +103,13 @@ type routingRig struct {
 }
 
 func newRig(t *testing.T, text string, tags []string, choices map[string]string) *routingRig {
+	return newRigWith(t, text, tags, choices, false)
+}
+
+// newRigWith is newRig; keepIPv4 keeps the routes' ipv4, which looks every name
+// sent to them up through the route first. A fake node cannot answer that lookup,
+// so the tests of which node a name goes to leave it out; it has tests of its own.
+func newRigWith(t *testing.T, text string, tags []string, choices map[string]string, keepIPv4 bool) *routingRig {
 	bin, _ := filepath.Abs("../../bin/sing-box")
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no bin/sing-box")
@@ -133,6 +140,11 @@ func newRig(t *testing.T, text string, tags []string, choices map[string]string)
 	plan, errs := rules.Compile(text, tags, choices)
 	if errs != nil {
 		t.Fatal(errs)
+	}
+	if !keepIPv4 {
+		for i := range plan.Routes {
+			plan.Routes[i].IPv4 = false
+		}
 	}
 	if err := c.Start(singcfg.Input{Nodes: outs, Plan: plan, Choices: choices, Sets: sets}, 0); err != nil {
 		t.Fatal(err)
@@ -498,5 +510,31 @@ func TestGroupsOfSitesDecideFirst(t *testing.T) {
 	r.connect("shut.example.net")
 	if got := r.whoSaw("shut.example.net"); len(got) != 0 {
 		t.Errorf("a blocked site reached %v", got)
+	}
+}
+
+// An ipv4 route has the names sent to it looked up through itself: the question
+// goes out through its node, to the foreign server, and through no other node.
+func TestAnIPv4RouteLooksNamesUpThroughItsOwnNode(t *testing.T) {
+	r := newRigWith(t, fixtures.AIAccounts(), allNodes, nil, true)
+	var dns string
+	for _, s := range singcfg.DNSServers() {
+		if s.Side == "foreign" {
+			dns = s.Address
+			break
+		}
+	}
+	r.connect("claude.ai")
+	waitFor := time.Now().Add(5 * time.Second)
+	for !r.nodes["🇬🇧 London 01"].saw(dns) && time.Now().Before(waitFor) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if got := r.whoSaw(dns); strings.Join(got, ",") != "🇬🇧 London 01" {
+		t.Errorf("the lookup for a name sent to the UK route went through %v, want the UK node alone", got)
+	}
+	// The name itself is never handed to a node: only an address would be, once
+	// the lookup answered, which a fake node never lets it.
+	if got := r.whoSaw("claude.ai"); len(got) != 0 {
+		t.Errorf("the name reached %v", got)
 	}
 }
