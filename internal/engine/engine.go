@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -124,6 +125,7 @@ type State struct {
 	RuleSetsChecked time.Time
 	DataDir         string
 	CatalogErr      string // why the list of rule sets could not be fetched, "" if it could
+	Overlaps        []Overlap
 }
 
 // Engine runs Faro.
@@ -140,6 +142,12 @@ type Engine struct {
 	catalogBusy  bool
 	catalogErr   string
 	catalogTried time.Time
+
+	reading    atomic.Bool // the sets are being read out
+	ctMu       sync.Mutex  // the contents of rule sets, read out by the core
+	contents   map[string]cachedSet
+	overlaps   []Overlap
+	overlapGen int
 
 	mu            sync.Mutex
 	status        string
@@ -245,6 +253,7 @@ func New(opts Options) (*Engine, error) {
 	}
 	e.reloadLocked()
 	go e.keepRuleSetsCurrent()
+	go e.refreshOverlaps()
 	return e, nil
 }
 
@@ -274,7 +283,7 @@ func (e *Engine) State() State {
 		SystemProxy: e.prefs.SystemProxy, LightMode: e.prefs.LightMode, MixedPort: e.prefs.MixedPort,
 		Notes: e.core.Notes(), DataDir: e.core.Dir(),
 		DNS:             singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign},
-		RuleSetsChecked: e.ruleSetsCheckedLocked(), CatalogErr: e.catalogErr,
+		RuleSetsChecked: e.ruleSetsCheckedLocked(), CatalogErr: e.catalogErr, Overlaps: append([]Overlap(nil), e.overlaps...),
 	}
 	return st
 }
@@ -1368,6 +1377,7 @@ func (e *Engine) editGroups(change func(gs []domains.Group, routeIDs map[string]
 	e.reloadLocked()
 	running := e.status == Running
 	e.mu.Unlock()
+	go e.refreshOverlaps()
 	e.changed()
 	if running {
 		e.Restart()

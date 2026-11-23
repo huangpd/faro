@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 
 	"faro/internal/clashapi"
+	"faro/internal/domains"
 	"faro/internal/engine"
 )
 
@@ -135,6 +137,9 @@ func (a *app) why(c *ui.Context, st engine.State, k clashapi.Conn) {
 		}
 		a.whyRow(c, "路径", strings.Join(chain, "  →  "))
 		a.whyRow(c, "目的", fmt.Sprintf("%s %s %s", strings.ToUpper(k.Network), k.DestIP, k.Port))
+		if held := a.heldBy(st, k.Host); held != "" {
+			a.whyRow(c, "所在规则集", held)
+		}
 		a.addFromConn(c, st, k.Host)
 	})
 }
@@ -154,4 +159,23 @@ func ruleText(rule string) string {
 		return "没有规则点名，走了 proxy"
 	}
 	return rule
+}
+
+// heldBy says which rule sets the site is in, and which group each is kept in.
+// It only knows the sets that are here, those that ship and those that were added.
+func (a *app) heldBy(st engine.State, host string) string {
+	if _, ok := domains.One(host); !ok {
+		return "" // an address, not a name
+	}
+	var out []string
+	for _, name := range a.eng.SetsHolding(host) {
+		item := strings.TrimPrefix(name, "geosite-")
+		for _, g := range st.Groups {
+			if slices.Contains(g.Sets, name) {
+				item += "（分组 " + g.Name + "）"
+			}
+		}
+		out = append(out, item)
+	}
+	return strings.Join(out, "、")
 }

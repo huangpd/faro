@@ -125,6 +125,9 @@ func findBinary(resDir string) (string, error) {
 // Dir is the data directory.
 func (c *Core) Dir() string { return c.dir }
 
+// Bin is the core program, which can also read a rule set out.
+func (c *Core) Bin() string { return c.bin }
+
 func (c *Core) pidFile() string { return filepath.Join(c.dir, "core.pid") }
 
 // reapStale ends a core a crashed earlier run left behind. It checks the

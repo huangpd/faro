@@ -1178,3 +1178,34 @@ func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
 		t.Error("a removed set is still shown")
 	}
 }
+
+func TestOverlapsAreShownOnBothGroupsAndASiteSaysWhichSetsHoldIt(t *testing.T) {
+	a := newTestApp(t)
+	a.eng.NewGroup("先", "direct", "")
+	a.eng.NewGroup("后", "proxy", "ai.google.dev")
+	if err := a.eng.AddSet("先", "geosite-google-gemini"); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, "the overlap", func() bool { return len(a.eng.State().Overlaps) == 1 })
+	var said []string
+	for _, txt := range view(a, "规则").Texts() {
+		if strings.Contains(txt, "重叠") {
+			said = append(said, txt)
+		}
+	}
+	if len(said) != 2 || !strings.Contains(said[0], "本组优先") || !strings.Contains(said[1], "「先」优先") {
+		t.Errorf("overlap lines %q", said)
+	}
+
+	var held string
+	wait(t, "the sets read", func() bool {
+		held = a.heldBy(a.eng.State(), "ai.google.dev")
+		return held != ""
+	})
+	if !strings.Contains(held, "google-gemini（分组 先）") || strings.Contains(held, "geosite-") {
+		t.Errorf("held by %q", held)
+	}
+	if a.heldBy(a.eng.State(), "192.0.2.7") != "" {
+		t.Error("an address was looked up as a name")
+	}
+}

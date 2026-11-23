@@ -149,7 +149,28 @@ func (a *app) groupCard(c *ui.Context, st engine.State, i int, g domains.Group) 
 			a.domErr = errText(a.eng.SetGroupDomains(g.Name, *tok))
 		}
 		a.groupSets(c, st, g)
+		a.groupOverlaps(c, st, g)
 	})
+}
+
+// groupOverlaps says where this group and another claim the same sites while
+// sending them to different places: the one checked first decides them.
+func (a *app) groupOverlaps(c *ui.Context, st engine.State, g domains.Group) {
+	for _, o := range st.Overlaps {
+		var text string
+		switch g.Name {
+		case o.Winner:
+			text = fmt.Sprintf("与「%s」重叠 %d 处，如 %s；本组优先", o.Other, o.Count, o.Example)
+		case o.Other:
+			text = fmt.Sprintf("与「%s」重叠 %d 处，如 %s；「%s」优先", o.Winner, o.Count, o.Example, o.Winner)
+		default:
+			continue
+		}
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			icon(c, "shield-alert", 14, a.k.warn)
+			ui.Text(c, text).FontSize(fsMeta).TextColor(a.k.warn).Selectable()
+		})
+	}
 }
 
 // groupSets shows the rule sets a group holds, and a search to add more: what

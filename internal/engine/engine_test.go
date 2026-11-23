@@ -17,8 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"faro/internal/domains"
 	"faro/internal/fixtures"
 	"faro/internal/presets"
+	"faro/internal/ruleset"
 )
 
 // ---- helpers
@@ -980,4 +982,81 @@ func TestRuleSetsAddedToGroups(t *testing.T) {
 	}
 	e.EnsureCatalog()
 	waitFor(t, "the list", func() bool { return len(e.SearchSets("zzz-found")) == 1 })
+}
+
+func TestGroupsThatClaimTheSameSitesAreToldApart(t *testing.T) {
+	parse := func(js string) *ruleset.Content {
+		c, err := ruleset.ParseContent([]byte(js))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	sets := map[string]*ruleset.Content{
+		"geosite-a": parse(`{"rules":[{"domain_suffix":["video.example","shared.example"]}]}`),
+		"geosite-b": parse(`{"rules":[{"domain_suffix":["shared.example","other.example"]}]}`),
+	}
+	get := func(n string) *ruleset.Content { return sets[n] }
+
+	gs := []domains.Group{
+		{Name: "first", Target: "direct", Sets: []string{"geosite-a"}},
+		{Name: "second", Target: "proxy", Domains: []string{"unrelated.example"}, Sets: []string{"geosite-b"}},
+		{Name: "third", Target: "direct", Domains: []string{"video.example"}},
+	}
+	ov := overlapsOf(gs, get)
+	if len(ov) != 1 || ov[0].Winner != "first" || ov[0].Other != "second" || ov[0].Count < 2 {
+		t.Fatalf("overlaps %+v", ov) // third goes where first does: not an overlap
+	}
+	if ov[0].Example == "" {
+		t.Error("no example")
+	}
+	gs[0], gs[1] = gs[1], gs[0]
+	if ov := overlapsOf(gs, get); len(ov) != 1 || ov[0].Winner != "second" || ov[0].Other != "first" {
+		t.Errorf("the group first decides: %+v", ov)
+	}
+	nested := overlapsOf([]domains.Group{{Name: "p", Target: "direct", Domains: []string{"example.com"}}, {Name: "q", Target: "proxy", Domains: []string{"www.example.com"}}}, get)
+	if len(nested) != 1 || nested[0].Winner != "p" || nested[0].Example != "www.example.com" {
+		t.Errorf("a site under another is an overlap: %+v", nested)
+	}
+	if ov := overlapsOf([]domains.Group{{Name: "x", Target: "direct", Sets: []string{"geosite-missing"}}, {Name: "y", Target: "proxy", Domains: []string{"a.com"}}}, get); ov != nil {
+		t.Errorf("a set that is not there overlaps nothing: %+v", ov)
+	}
+}
+
+func TestOverlapsAndHoldersFromRealRuleSets(t *testing.T) {
+	e := newEngine(t, (&fakeNetworksetup{}).run)
+	if err := e.NewGroup("one", "direct", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.NewGroup("two", "proxy", "ai.google.dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.AddSet("one", "geosite-google-gemini"); err != nil { // shipped: nothing to fetch
+		t.Fatal(err)
+	}
+	waitFor(t, "the overlap", func() bool { return len(e.State().Overlaps) == 1 })
+	o := e.State().Overlaps[0]
+	if o.Winner != "one" || o.Other != "two" || o.Example != "ai.google.dev" {
+		t.Errorf("overlap %+v", o)
+	}
+	if err := e.MoveGroup("two", -1); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the winner to change", func() bool { o := e.State().Overlaps; return len(o) == 1 && o[0].Winner == "two" })
+
+	var got []string
+	waitFor(t, "the sets read", func() bool {
+		got = e.SetsHolding("ai.google.dev")
+		return len(got) > 0
+	})
+	has := false
+	for _, n := range got {
+		has = has || n == "geosite-google-gemini"
+	}
+	if !has {
+		t.Errorf("holders %v", got)
+	}
+	if got := e.SetsHolding("no-such-site.invalid"); len(got) != 0 {
+		t.Errorf("a site in no set: %v", got)
+	}
 }
