@@ -111,6 +111,9 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 	var routeRules []any
 	sets := map[string]any{}
 	findProcess := false
+	// The groups of ipv4 routes: what is sent to them leaves the node over IPv4.
+	var ipv4Groups []string
+	isIPv4Group := map[string]bool{}
 
 	if len(nodes) > 0 {
 		// Nodes of an ipv4 route resolve the names they dial as IPv4 only.
@@ -168,6 +171,10 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 			for _, r := range in.Plan.Routes {
 				if len(r.Nodes) == 0 {
 					continue // its rules were turned into blocks
+				}
+				if r.IPv4 {
+					ipv4Groups = append(ipv4Groups, r.Group())
+					isIPv4Group[r.Group()] = true
 				}
 				choices := append([]string{}, r.Nodes...)
 				def := r.Chosen
@@ -250,6 +257,20 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 			default:
 				rule["action"], rule["outbound"] = "route", outboundTag(r.Target)
 			}
+			if g := outboundTag(r.Target); isIPv4Group[g] {
+				// A name sent to a node is looked up by the node, which goes out over
+				// IPv6 where it can, whatever the route says. So the name is looked up
+				// here first, IPv4 only, by a server reached through the same route, and
+				// the node is given the address: it can only go out over IPv4. Without
+				// an IPv4 answer the connection fails; it never falls back to IPv6.
+				res := map[string]any{}
+				for k, v := range rule {
+					res[k] = v
+				}
+				delete(res, "outbound")
+				res["action"], res["server"], res["strategy"] = "resolve", viaDNS(g), "ipv4_only"
+				routeRules = append(routeRules, res)
+			}
 			routeRules = append(routeRules, rule)
 		}
 	}
@@ -261,7 +282,7 @@ func Build(s Settings, in Input) (cfg []byte, notes []string, err error) {
 		sets[cnRuleSet] = map[string]any{"type": "local", "tag": cnRuleSet, "format": "binary", "path": path}
 		cnSet = cnRuleSet
 	}
-	dnsSection, resolver, dnsNotes := dnsConfig(in.DNS, len(nodes) > 0, cnSet)
+	dnsSection, resolver, dnsNotes := dnsConfig(in.DNS, len(nodes) > 0, cnSet, ipv4Groups)
 	notes = append(notes, dnsNotes...)
 
 	var ruleSets []any

@@ -82,7 +82,7 @@ func DNSOptions(side string) []DNSServer {
 // rule set that tells names in China, "" when it is not installed: then all
 // names go through the proxy, which is slower for names in China but leaks
 // nothing.
-func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string) (dns map[string]any, resolver string, notes []string) {
+func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string, via []string) (dns map[string]any, resolver string, notes []string) {
 	dom, _ := pick("domestic", choice.Domestic)
 	servers := []any{map[string]any{
 		"type": "https", "tag": "domestic", "server": dom.Address, "tls": map[string]any{"server_name": dom.TLSName},
@@ -97,6 +97,15 @@ func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string) (dns map[string]an
 		"type": "https", "tag": "foreign", "server": foreign.Address, "tls": map[string]any{"server_name": foreign.TLSName},
 		"detour": TagProxy,
 	})
+	// A server for each ipv4 route, the foreign one reached through the route
+	// itself: the names its traffic goes to are looked up from its node, not
+	// from here nor through another country's. A gate that is shut shuts it too.
+	for _, g := range via {
+		dns["servers"] = append(dns["servers"].([]any), map[string]any{
+			"type": "https", "tag": viaDNS(g), "server": foreign.Address, "tls": map[string]any{"server_name": foreign.TLSName},
+			"detour": g,
+		})
+	}
 	dns["final"] = "foreign"
 	if cnSet != "" {
 		dns["rules"] = []any{map[string]any{"rule_set": []string{cnSet}, "action": "route", "server": "domestic"}}
@@ -105,5 +114,8 @@ func dnsConfig(choice DNSChoice, hasProxy bool, cnSet string) (dns map[string]an
 	}
 	return dns, "domestic", notes
 }
+
+// viaDNS is the tag of the DNS server reached through a route's group.
+func viaDNS(group string) string { return "dns-" + group }
 
 func (s DNSServer) String() string { return fmt.Sprintf("%s (%s)", s.Label, s.Address) }

@@ -291,3 +291,90 @@ func TestAutoGroupSkipsNotices(t *testing.T) {
 		}
 	}
 }
+
+func TestAnIPv4RouteHasItsNamesLookedUpAsIPv4ThroughItself(t *testing.T) {
+	text := `route work region UK gate ipv4
+route other region DE
+work domain:work.example
+work process:WorkApp
+other domain:other.example
+direct domain:local.example
+`
+	tags := []string{"UK 01", "DE 01"}
+	plan, errs := rules.Compile(text, tags, nil)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	var nodes []Outbound
+	for _, tag := range tags {
+		nodes = append(nodes, Outbound{tag, map[string]any{"type": "shadowsocks", "server": "a.example.com", "server_port": 1, "method": "aes-256-gcm", "password": "p"}})
+	}
+	set, _ := NewSettings(0)
+	cfg, _, err := Build(set, Input{Nodes: nodes, Plan: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bin, _ := filepath.Abs("../../bin/sing-box"); fileExists(bin) {
+		p := filepath.Join(t.TempDir(), "c.json")
+		os.WriteFile(p, cfg, 0o600)
+		if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+	}
+	var c struct {
+		DNS struct {
+			Servers []map[string]any `json:"servers"`
+		} `json:"dns"`
+		Route struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	json.Unmarshal(cfg, &c)
+	work := "route-work"
+
+	// A server for the route, reached through it; none for the route without ipv4.
+	var via map[string]any
+	for _, s := range c.DNS.Servers {
+		if s["tag"] == "dns-"+work {
+			via = s
+		}
+		if s["tag"] == "dns-route-other" {
+			t.Error("a route without ipv4 has a server of its own")
+		}
+	}
+	if via == nil || via["detour"] != work {
+		t.Fatalf("the route's DNS server: %v", via)
+	}
+
+	// Each rule to the route is preceded by the same rule, resolving IPv4 only
+	// through that server; other rules are not.
+	var toWork, resolves int
+	for i, r := range c.Route.Rules {
+		if r["action"] == "resolve" && r["strategy"] == "ipv4_only" {
+			resolves++
+			next := c.Route.Rules[i+1]
+			if r["server"] != "dns-"+work || next["outbound"] != work {
+				t.Errorf("resolve %v is not before a rule to the route: %v", r, next)
+			}
+			for k, v := range r {
+				if k == "action" || k == "server" || k == "strategy" {
+					continue
+				}
+				if fmt.Sprint(next[k]) != fmt.Sprint(v) {
+					t.Errorf("the resolve matches %s=%v, the rule %v", k, v, next[k])
+				}
+			}
+			if _, ok := r["outbound"]; ok {
+				t.Error("a resolve with an outbound")
+			}
+		}
+		if r["outbound"] == work {
+			toWork++
+		}
+	}
+	if toWork != 2 || resolves != 2 {
+		t.Errorf("%d rules to the route, %d resolves: want 2 and 2", toWork, resolves)
+	}
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
