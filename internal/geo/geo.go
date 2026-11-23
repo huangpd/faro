@@ -107,50 +107,74 @@ func ZoneOf(name string, now time.Time) (Point, bool) {
 	return Point{Lat: 35, Lon: float64(off) / 3600 * 15}, true
 }
 
-// Viewport is the part of the flat map that is shown: its middle, and how many
-// degrees it spans across and up.
-type Viewport struct{ Lon, Lat, SpanLon, SpanLat float64 }
+// The map is the whole world, turned so that the place it is made for is near
+// its left edge: east of there is to the right, and what is west of it comes
+// round and is at the far right. Every map is framed the same, so they can be
+// read against each other.
+type World struct{ L0 float64 }
 
-// wrap puts a longitude within 180 degrees of the middle.
-func wrap(lon, mid float64) float64 {
-	d := math.Mod(lon-mid, 360)
+// Top and Bottom are the latitudes the map shows, from north to south.
+const (
+	Top    = 85.0
+	Bottom = -65.0
+)
+
+// WorldFrom turns the world so that origin is x0 of the way from the left.
+func WorldFrom(origin Point, x0 float64) World {
+	return World{L0: origin.Lon - x0*360}
+}
+
+// XY places a point on the map: x from 0 at the left to 1 at the right, y from
+// 0 at the top to 1 at the bottom.
+func (w World) XY(p Point) (x, y float64) {
+	x = math.Mod(p.Lon-w.L0, 360) / 360
+	if x < 0 {
+		x++
+	}
+	return x, (Top - p.Lat) / (Top - Bottom)
+}
+
+// Way is the shortest way from one place to another round the Earth as a
+// fraction of the map's width: positive going east, which is to the right.
+func Way(from, to Point) float64 {
+	d := math.Mod(to.Lon-from.Lon, 360)
 	if d > 180 {
 		d -= 360
 	} else if d < -180 {
 		d += 360
 	}
-	return mid + d
+	return d / 360
 }
 
-// Frame is the part of the map that shows two places with room round them, at
-// the shape aspect (width over height). It goes the short way round the Earth,
-// so that a route over the Pacific is not drawn across the whole map, and shows
-// at least minSpan degrees across, so that two near places are not blown up.
-func Frame(a, b Point, aspect, minSpan float64) Viewport {
-	b.Lon = wrap(b.Lon, a.Lon)
-	w := math.Abs(b.Lon-a.Lon)*1.5 + 24
-	h := math.Abs(b.Lat-a.Lat)*1.9 + 14
-	span := math.Max(math.Max(w, h*aspect), minSpan)
-	span = math.Min(span, 360)
-	v := Viewport{
-		Lon: (a.Lon + b.Lon) / 2, Lat: (a.Lat + b.Lat) / 2,
-		SpanLon: span, SpanLat: span / aspect,
+// Coarse is the land as a grid three times as coarse as Land, a cell of it
+// land where a third of its cells are: dots far enough apart for a small map.
+var Coarse = coarsen(landText, 3)
+
+func coarsen(text string, f int) []Point {
+	var rows []string
+	for _, line := range strings.Split(text, "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			rows = append(rows, line)
+		}
 	}
-	if v.SpanLat > 160 {
-		v.SpanLat, v.SpanLon = 160, 160*aspect
+	var out []Point
+	for r := 0; r+f <= len(rows); r += f {
+		for c := 0; c+f <= len(rows[r]); c += f {
+			n := 0
+			for i := 0; i < f; i++ {
+				for j := 0; j < f; j++ {
+					if rows[r+i][c+j] == '#' {
+						n++
+					}
+				}
+			}
+			if n*3 >= f*f {
+				out = append(out, Point{Top - Cell*(float64(r)+float64(f)/2), -180 + Cell*(float64(c)+float64(f)/2)})
+			}
+		}
 	}
-	// Keep the middle where there is map to show.
-	if lim := 85 - v.SpanLat/2; v.Lat > lim {
-		v.Lat = lim
-	} else if lim := -65 + v.SpanLat/2; v.Lat < lim {
-		v.Lat = lim
-	}
-	return v
+	return out
 }
 
-// XY places a point on the viewport: x and y in fractions of its width and
-// height from the top left, outside 0..1 when it is off the part shown.
-func (v Viewport) XY(p Point) (x, y float64) {
-	lon := wrap(p.Lon, v.Lon)
-	return 0.5 + (lon-v.Lon)/v.SpanLon, 0.5 - (p.Lat-v.Lat)/v.SpanLat
-}
+// CoarseCell is the size of a cell of Coarse, in degrees.
+const CoarseCell = Cell * 3

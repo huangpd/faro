@@ -13,16 +13,24 @@ import (
 	"faro/internal/singcfg"
 )
 
-// A lane's map: the part of the world map between this Mac and the lane's
-// exit, as dots of land, with an arc from one to the other and a light that runs
-// along it. It says where the traffic leaves from at a glance; it is drawn from
-// data in the app, and nothing is looked up from the network for it.
+// A lane's map: the world as dots of land, turned so that this Mac is near the
+// left edge, with an arc from here to the lane's exit that runs once and stands
+// still. Every lane's map is framed the same, so they read against each other.
+// It is drawn from data in the app; nothing is looked up from the network.
 
 const (
-	mapW, mapH = 196, 104
+	mapW, mapH = 250, 104
+	// mapOrigin is how far from the left edge this Mac is, as a fraction of the width.
+	mapOrigin = 0.13
 	// mapScale is how many pixels the still layer has to a DIP: enough for sharp dots
 	// on a screen that shows two.
 	mapScale = 2
+	// mapRunTime is how long the light takes to run from here to the exit, and
+	// mapEvery how often it runs.
+	mapRunTime = 1400 * time.Millisecond
+	mapEvery   = 5 * time.Second
+	mapTail    = 16 // points of the light's tail
+	mapN       = 56 // points along the arc
 )
 
 type mapMode int
@@ -32,13 +40,16 @@ const (
 	mapClosed                // the gate is shut: nowhere to go
 )
 
-// mapLayer is the part of a map that does not move, and what it was drawn for.
+// mapLayer is the part of the map that does not move, and what it was drawn for.
 type mapLayer struct {
 	cv  *ui.Canvas
 	key string
+}
 
-	exit  string    // where the arc went when it last ran
-	start time.Time // when it started to run
+// mapRun is a lane's arc: where it went, and when its light first ran.
+type mapRun struct {
+	exit  string
+	start time.Time
 }
 
 // laneMap is the map of a lane. exit is where its exit is, nil if that is not
@@ -56,36 +67,31 @@ func (a *app) laneMap(c *ui.Context, id string, hue ui.Color, exit *geo.Point, l
 }
 
 func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit *geo.Point, label string, hue ui.Color, mode mapMode) {
-	aspect := float64(r.W / r.H)
+	world := geo.WorldFrom(from, mapOrigin)
 	live := exit != nil && mode == mapLive
-	to := from
-	if live {
-		to = *exit
-	}
-	vp := geo.Frame(from, to, aspect, 46)
 
-	// What does not move is drawn once into a canvas and shown from it: the land
-	// is some hundreds of dots, too many to draw again every frame.
-	key := fmt.Sprintf("%.2f %.2f %.1f %v %v %v", vp.Lon, vp.Lat, vp.SpanLon, hue, a.k.dark, r.W)
-	layer := a.mapLayers[id]
-	if layer == nil {
-		layer = &mapLayer{cv: ui.NewCanvas(int(r.W*mapScale), int(r.H*mapScale))}
-		a.mapLayers[id] = layer
+	// A glow in the lane's hue, and the land under it: the land is the same for
+	// every lane, drawn once into a canvas and shown from it.
+	p.FillRadialGradient(r, ui.RadialGradient{Center: ui.Point{Y: -0.3}, Radius: r.W * 0.6,
+		Stops: []ui.GradientStop{{Color: hue.Alpha(0.14), At: 0}, {Color: hue.Alpha(0), At: 1}}}, 0)
+	key := fmt.Sprintf("%.2f %v %v", world.L0, a.k.dark, r.W)
+	if a.mapLand == nil || a.mapLand.key != key {
+		if a.mapLand == nil {
+			a.mapLand = &mapLayer{cv: ui.NewCanvas(int(r.W*mapScale), int(r.H*mapScale))}
+		}
+		a.mapLand.cv.Draw(p, func(cp *ui.Painter) { a.paintLand(cp, world, r.W*mapScale, r.H*mapScale, mapScale) })
+		a.mapLand.key = key
 	}
-	if layer.key != key {
-		layer.cv.Draw(p, func(cp *ui.Painter) { a.paintLand(cp, vp, hue, r.W*mapScale, r.H*mapScale, mapScale) })
-		layer.key = key
-	}
-	p.Image(layer.cv.Bitmap(), r, ui.FillBox)
+	p.Image(a.mapLand.cv.Bitmap(), r, ui.FillBox)
 
 	at := func(pt geo.Point) (float32, float32) {
-		x, y := vp.XY(pt)
+		x, y := world.XY(pt)
 		return r.X + float32(x)*r.W, r.Y + float32(y)*r.H
 	}
-	ax, ay := at(from)
 	dot := func(x, y, rad float32, col ui.Color) {
 		p.Fill(ui.Rect{X: x - rad, Y: y - rad, W: 2 * rad, H: 2 * rad}, col, rad)
 	}
+	ax, ay := at(from)
 	if !live {
 		col := a.k.text
 		if mode == mapClosed {
@@ -95,46 +101,31 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 		return
 	}
 
-	// The arc is drawn once, as the exit is set or changed: a light runs from here
-	// to there, leaving the line behind it, and then it stands still. Nothing asks
-	// for another frame after that, so a map costs nothing while it is looked at.
-	where := fmt.Sprintf("%.2f %.2f", to.Lat, to.Lon)
+	// The arc is there all the time, and every few seconds a light runs along it
+	// from here to the exit. Between runs nothing is drawn but the still picture,
+	// and the window is asked for a frame only when the next run is due: a map
+	// that flows costs a little for a moment, not all the time.
+	run := a.mapRuns[id]
+	where := fmt.Sprintf("%.2f %.2f", exit.Lat, exit.Lon)
 	now := p.Now()
-	if layer.exit != where {
-		layer.exit, layer.start = where, now
+	if run == nil {
+		run = &mapRun{}
+		a.mapRuns[id] = run
 	}
-	u := float32(now.Sub(layer.start).Seconds() / mapRun.Seconds())
-	running := u < 1
-	u = min(max(u, 0), 1)
-	t := 1 - (1-u)*(1-u)*(1-u) // slows toward the end, as it arrives
+	if run.exit != where { // a new exit: the light runs at once
+		run.exit, run.start = where, now
+	}
+	phase := time.Duration(math.Mod(float64(now.Sub(run.start)), float64(mapEvery)))
+	running := phase < mapRunTime
 
-	// The arc bows up from the straight line between the two, by a third of its length.
-	bx, by := at(to)
-	dx, dy := bx-ax, by-ay
-	mx, my := (ax+bx)/2, (ay+by)/2
-	nx, ny := -dy, dx // a normal to the line, turned to point up
-	if ny > 0 {
-		nx, ny = -nx, -ny
+	_, ey := at(*exit)
+	ex := ax + float32(geo.Way(from, *exit))*r.W // not wrapped: past an edge, the arc goes on from the other
+	pts := mapArc(ax, ay, ex, ey, r.X, r.W, mapN)
+	for _, seg := range runsOf(pts, r.W) {
+		p.StrokePolyline(seg, 1.4, hue.Alpha(0.42))
 	}
-	if n := float32(math.Hypot(float64(nx), float64(ny))); n > 1e-3 {
-		k := 0.34 * float32(math.Hypot(float64(dx), float64(dy))) / n
-		nx, ny = nx*k, ny*k
-	}
-	cx, cy := mx+nx, my+ny
-	arc := func() *ui.Path { return new(ui.Path).MoveTo(ax, ay).QuadTo(cx, cy, bx, by) }
-	p.StrokePath(arc().Trim(0, t).Cap(ui.RoundCap), 1.6, hue.Alpha(0.75))
-
 	dot(ax, ay, 2.8, a.k.text)
-	if running {
-		hx := (1-t)*(1-t)*ax + 2*(1-t)*t*cx + t*t*bx
-		hy := (1-t)*(1-t)*ay + 2*(1-t)*t*cy + t*t*by
-		p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
-			Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0)}}}, 9)
-		dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
-		p.AnimationFrameRate(30)
-		return
-	}
-	// Arrived: a ring round the exit, still, and its name.
+	bx, by := pts[mapN][0], pts[mapN][1]
 	p.Stroke(ui.Rect{X: bx - 7, Y: by - 7, W: 14, H: 14}, hue.Alpha(0.4), 7, 1.2)
 	dot(bx, by, 3.4, hue)
 	if label != "" {
@@ -144,26 +135,75 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 		}
 		p.Text(lx, by-6, label, 10, a.k.text2)
 	}
+	if !running {
+		p.After(mapEvery - phase)
+		return
+	}
+	head := int(float64(phase) / float64(mapRunTime) * mapN)
+	for k, w := range []float32{1.8, 2.6} { // a tail that brightens toward the light
+		from := max(0, head-int(mapTail)*(2-k)/2)
+		for _, seg := range runsOf(pts[from:head+1], r.W) {
+			p.StrokePolyline(seg, w, hue.Alpha(0.5+0.45*float32(k)))
+		}
+	}
+	hx, hy := pts[head][0], pts[head][1]
+	p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
+		Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0)}}}, 9)
+	dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
+	p.AnimationFrameRate(24)
 }
 
-// mapRun is how long the arc takes to run from here to the exit.
-const mapRun = 1300 * time.Millisecond
-
-// paintLand paints the land as dots, k pixels to a DIP, over a soft glow.
-func (a *app) paintLand(p *ui.Painter, vp geo.Viewport, hue ui.Color, w, h, k float32) {
-	p.FillRadialGradient(ui.Rect{W: w, H: h}, ui.RadialGradient{
-		Center: ui.Point{Y: -0.25}, Radius: w * 0.7,
-		Stops: []ui.GradientStop{{Color: hue.Alpha(0.13), At: 0}, {Color: hue.Alpha(0), At: 1}},
-	}, 0)
-	pitch := float32(geo.Cell/vp.SpanLon) * w // how far apart the dots are
-	sz := min(k*2.2, pitch*0.46)
-	for _, c := range geo.Land {
-		x, y := vp.XY(c)
-		if x < -0.02 || x > 1.02 || y < -0.02 || y > 1.02 {
-			continue
+// mapArc is n+1 points of an arc from (ax, ay) to (ex, ey) that bows up from the
+// straight line between them, by a third of its length. An end past the edge of the
+// map, which is left to left+width, goes on from the other edge: the points are
+// put within the map, so that the arc leaves at one side and comes in at the other.
+func mapArc(ax, ay, ex, ey, left, width float32, n int) [][2]float32 {
+	dx, dy := ex-ax, ey-ay
+	nx, ny := -dy, dx // a normal to the line, turned to point up
+	if ny > 0 {
+		nx, ny = -nx, -ny
+	}
+	nx, ny = nx*0.34, ny*0.34 // the normal is as long as the line: a third of it
+	cx, cy := (ax+ex)/2+nx, (ay+ey)/2+ny
+	pts := make([][2]float32, n+1)
+	for i := range pts {
+		t := float32(i) / float32(n)
+		u := 1 - t
+		x := u*u*ax + 2*u*t*cx + t*t*ex
+		y := u*u*ay + 2*u*t*cy + t*t*ey
+		x = left + float32(math.Mod(float64(x-left), float64(width)))
+		if x < left {
+			x += width
 		}
+		pts[i] = [2]float32{x, y}
+	}
+	return pts
+}
+
+// runsOf splits points where they jump from one side of the map to the other, so
+// that no line is drawn across it.
+func runsOf(pts [][2]float32, width float32) [][][2]float32 {
+	var out [][][2]float32
+	start := 0
+	for i := 1; i <= len(pts); i++ {
+		if i == len(pts) || math.Abs(float64(pts[i][0]-pts[i-1][0])) > float64(width)/2 {
+			if i-start > 1 {
+				out = append(out, pts[start:i])
+			}
+			start = i
+		}
+	}
+	return out
+}
+
+// paintLand paints the land as dots, k pixels to a DIP.
+func (a *app) paintLand(p *ui.Painter, world geo.World, w, h, k float32) {
+	pitch := float32(geo.CoarseCell/360) * w // how far apart the dots are
+	sz := min(k*2.2, pitch*0.62)
+	for _, c := range geo.Coarse {
+		x, y := world.XY(c)
 		px, py := float32(x)*w, float32(y)*h
-		p.Fill(ui.Rect{X: px - sz/2, Y: py - sz/2, W: sz, H: sz}, a.k.text2.Alpha(0.42), sz/2)
+		p.Fill(ui.Rect{X: px - sz/2, Y: py - sz/2, W: sz, H: sz}, a.k.text2.Alpha(0.45), sz/2)
 	}
 }
 

@@ -42,58 +42,60 @@ func TestPlaces(t *testing.T) {
 	}
 }
 
-func TestFrameShowsBothPlacesAndGoesTheShortWayRound(t *testing.T) {
-	const aspect = 2.0
-	check := func(name string, a, b Point) Viewport {
-		t.Helper()
-		v := Frame(a, b, aspect, 40)
-		for _, p := range []Point{a, b} {
-			x, y := v.XY(p)
-			if x < 0.05 || x > 0.95 || y < 0.05 || y > 0.95 {
-				t.Errorf("%s: %v is at %.2f,%.2f, near or past the edge of %+v", name, p, x, y, v)
-			}
-		}
-		if math.Abs(v.SpanLon/v.SpanLat-aspect) > 0.01 {
-			t.Errorf("%s: the shape is %v", name, v.SpanLon/v.SpanLat)
-		}
-		return v
+func TestTheWorldIsTurnedToTheOriginAtTheLeft(t *testing.T) {
+	here, _ := Place("HK")
+	w := WorldFrom(here, 0.14)
+	x, _ := w.XY(here)
+	if math.Abs(x-0.14) > 1e-9 {
+		t.Errorf("the origin is at %v", x)
 	}
-	hk, _ := Place("HK")
+	for _, p := range []Point{{0, -179.9}, {0, 179.9}, {60, 0}, {-30, 300 - 360}} {
+		if x, y := w.XY(p); x < 0 || x >= 1 || y < 0 || y > 1 {
+			t.Errorf("%v is off the map: %v,%v", p, x, y)
+		}
+	}
 	uk, _ := Place("UK")
 	us, _ := Place("US")
-	sg, _ := Place("SG")
-	check("hk-uk", hk, uk)
-	check("sg-hk", sg, hk)
-	// Across the Pacific, not the long way over Asia and Europe and the Atlantic.
-	v := check("hk-us", hk, us)
-	if v.Lon < 150 && v.Lon > -150 {
-		t.Errorf("the middle of a route over the Pacific is at %v", v.Lon)
+	jp, _ := Place("JP")
+	if d := Way(here, uk); d > -0.3 || d < -0.36 { // west, over Asia and Europe: a third of the way round
+		t.Errorf("hong kong to the UK is %v of the map", d)
 	}
-	// Two near places are not blown up, and the same place is shown.
-	near := Frame(hk, sg, aspect, 40)
-	if near.SpanLon < 40 {
-		t.Errorf("span %v", near.SpanLon)
+	if d := Way(here, us); d < 0.3 || d > 0.45 { // east, over the Pacific
+		t.Errorf("hong kong to the US is %v of the map", d)
 	}
-	same := check("same", hk, hk)
-	if same.SpanLon < 40 {
-		t.Errorf("span %v", same.SpanLon)
+	if Way(here, jp) <= 0 || Way(here, here) != 0 {
+		t.Error("Japan is east; here is nowhere from here")
 	}
-	// Never past the poles, however far north the places are.
-	north := Frame(Point{Lat: 70, Lon: 20}, Point{Lat: 69, Lon: 25}, aspect, 40)
-	if north.Lat+north.SpanLat/2 > 90 || north.Lat-north.SpanLat/2 < -90 {
-		t.Errorf("north %+v", north)
+	// The UK, west of the origin, is at the far right of the map.
+	if x, _ := w.XY(uk); x < 0.7 {
+		t.Errorf("the UK is at %v", x)
+	}
+	// The top of the map is the north, and the poles' edges are at the edges.
+	if _, y := w.XY(Point{Top, 0}); y != 0 {
+		t.Errorf("top %v", y)
+	}
+	if _, y := w.XY(Point{Bottom, 0}); y != 1 {
+		t.Errorf("bottom %v", y)
 	}
 }
 
-func TestXYUnwrapsLongitude(t *testing.T) {
-	v := Viewport{Lon: 180, Lat: 0, SpanLon: 60, SpanLat: 30}
-	x1, _ := v.XY(Point{0, 170})
-	x2, _ := v.XY(Point{0, -170}) // 190 degrees east: the other side of the date line
-	if math.Abs(x1-(0.5-10.0/60)) > 1e-9 || math.Abs(x2-(0.5+10.0/60)) > 1e-9 {
-		t.Errorf("x %v %v", x1, x2)
+func TestCoarseLandKeepsTheShapeOfTheWorld(t *testing.T) {
+	if len(Coarse) < 400 || len(Coarse) > 1500 {
+		t.Errorf("%d coarse cells", len(Coarse))
 	}
-	if x, y := v.XY(Point{0, 180}); x != 0.5 || y != 0.5 {
-		t.Errorf("the middle is at %v,%v", x, y)
+	has := func(lat, lon, within float64) bool {
+		for _, p := range Coarse {
+			if math.Abs(p.Lat-lat) <= within && math.Abs(p.Lon-lon) <= within {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(51, 5, 5) || !has(35, 105, 5) || !has(-25, 135, 6) || !has(39, -98, 5) {
+		t.Error("Europe, Asia, Australia and the US should be land")
+	}
+	if has(0, -150, 9) {
+		t.Error("the Pacific should not be land")
 	}
 }
 

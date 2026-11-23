@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1317,7 +1318,7 @@ func TestLanesShowWhereTheirExitIs(t *testing.T) {
 	}
 }
 
-func TestTheArcRunsOnceAndThenTheMapStandsStill(t *testing.T) {
+func TestTheLightRunsEveryFewSecondsAndTheMapRestsBetween(t *testing.T) {
 	a := newTestApp(t)
 	withNodes(t, a, "🇬🇧 London 01", "🇩🇪 Frankfurt 01")
 	usePreset(t, a, "ai-accounts")
@@ -1325,16 +1326,67 @@ func TestTheArcRunsOnceAndThenTheMapStandsStill(t *testing.T) {
 	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 76})
 	tt.Frame()
 	if !tt.FramePending() {
-		t.Error("the arc is not running as the map first shows")
+		t.Error("the light is not running as the map first shows")
 	}
-	tt.Advance(3 * time.Second)
+	// Between runs the window asks for nothing but the next run.
+	tt.Advance(mapRunTime + time.Second)
 	tt.Frame()
 	if tt.FramePending() {
-		t.Error("the map still asks for frames after the arc has run")
+		t.Error("the map asks for frames between runs")
 	}
-	// Redrawn, with nothing changed, it does not run again.
 	tt.Frame()
 	if tt.FramePending() {
-		t.Error("the arc ran again")
+		t.Error("a redraw at rest started a run")
+	}
+	// And at the next run it flows again.
+	tt.Advance(mapEvery - (mapRunTime + time.Second) + 200*time.Millisecond) // just past the next run's start
+	tt.Frame()
+	if !tt.FramePending() {
+		t.Error("the light did not run again")
+	}
+}
+
+func TestAnArcWestOfHereLeavesAtOneSideAndComesInAtTheOther(t *testing.T) {
+	const left, width = float32(100), float32(250)
+	here, _ := geo.Place("HK")
+	uk, _ := geo.Place("UK")
+	us, _ := geo.Place("US")
+	w := geo.WorldFrom(here, mapOrigin)
+	ends := func(to geo.Point) ([][2]float32, float32) {
+		ax, ay := w.XY(here)
+		_, ey := w.XY(to)
+		ex := left + float32(ax)*width + float32(geo.Way(here, to))*width
+		return mapArc(left+float32(ax)*width, float32(ay)*100, ex, float32(ey)*100, left, width, 40), ex
+	}
+	// To the UK, west: out of the left edge, in from the right.
+	pts, _ := ends(uk)
+	runs := runsOf(pts, width)
+	if len(runs) != 2 {
+		t.Fatalf("an arc across the edge is %d lines, want 2", len(runs))
+	}
+	for _, p := range pts {
+		if p[0] < left || p[0] > left+width {
+			t.Fatalf("a point is off the map: %v", p)
+		}
+	}
+	if runs[0][len(runs[0])-1][0] > left+width*0.1 || runs[1][0][0] < left+width*0.9 {
+		t.Errorf("the arc does not reach the edges: %v ... %v", runs[0][len(runs[0])-1], runs[1][0])
+	}
+	if end := pts[len(pts)-1][0]; end < left+width*0.7 {
+		t.Errorf("the UK is at %v: not at the far right", end)
+	}
+	// To the US, east over the Pacific: one line, to the right of here.
+	pts, _ = ends(us)
+	if runs := runsOf(pts, width); len(runs) != 1 || pts[len(pts)-1][0] <= pts[0][0] {
+		t.Errorf("the arc to the US is %d lines", len(runs))
+	}
+	// Every arc starts at the same place: here, near the left.
+	if start := pts[0][0]; math.Abs(float64(start-(left+width*mapOrigin))) > 0.01 {
+		t.Errorf("starts at %v", start)
+	}
+	// An arc to the same place is a point, and splits into nothing odd.
+	same, _ := ends(here)
+	if len(runsOf(same, width)) > 1 {
+		t.Error("a point split")
 	}
 }
