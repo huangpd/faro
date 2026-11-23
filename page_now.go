@@ -134,7 +134,7 @@ func (a *app) lane(c *ui.Context, st engine.State, r rules.Route, hue ui.Color) 
 				mode = globeClosed
 			}
 			ui.Column(c).Padding(8, 14, 8, 0).Justify(ui.Center).Children(func() {
-				a.laneGlobe(c, hue, laneExitPlace(st, r), mode)
+				a.laneGlobe(c, r.ID, hue, laneExitPlace(st, r), mode)
 			})
 		}
 	})
@@ -228,7 +228,7 @@ func (a *app) mainLane(c *ui.Context, st engine.State) {
 			}
 		})
 		ui.Column(c).Padding(8, 14, 8, 0).Justify(ui.Center).Children(func() {
-			a.laneGlobe(c, a.k.accent, mainExitPlace(st), globeLive)
+			a.laneGlobe(c, singcfg.TagProxy, a.k.accent, mainExitPlace(st), globeLive)
 		})
 	})
 }

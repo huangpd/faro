@@ -36,7 +36,8 @@ type app struct {
 	title   string // the menu-bar title last set
 	titleAt time.Time
 
-	here *geo.Point // where this Mac is taken to be, for the globes
+	here        *geo.Point // where this Mac is taken to be, for the globes
+	globeLayers map[string]*globeLayer
 
 	k    tokens // the design tokens of this frame
 	page page
@@ -85,7 +86,7 @@ type app struct {
 }
 
 func newApp(eng *engine.Engine) *app {
-	return &app{eng: eng, expanded: map[string]bool{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, rulesEdit: eng.State().RulesText}
+	return &app{eng: eng, expanded: map[string]bool{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, globeLayers: map[string]*globeLayer{}, rulesEdit: eng.State().RulesText}
 }
 
 // refresh redraws the window, when there is one, and the menu-bar item. It
