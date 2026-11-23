@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -78,6 +79,8 @@ func TestSnapshots(t *testing.T) {
 			tt := ui.NewTester(a.view, 1040, 700)
 			tt.SetDark(dark)
 			tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 76})
+			tt.Frame()
+			tt.Advance(2 * time.Second) // the arcs on the map have run
 			tt.Frame()
 			mode := "light"
 			if dark {

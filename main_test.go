@@ -1316,3 +1316,25 @@ func TestLanesShowWhereTheirExitIs(t *testing.T) {
 		t.Error("nothing drawn")
 	}
 }
+
+func TestTheArcRunsOnceAndThenTheMapStandsStill(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01", "🇩🇪 Frankfurt 01")
+	usePreset(t, a, "ai-accounts")
+	tt := ui.NewTester(a.view, 1040, 700)
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 76})
+	tt.Frame()
+	if !tt.FramePending() {
+		t.Error("the arc is not running as the map first shows")
+	}
+	tt.Advance(3 * time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Error("the map still asks for frames after the arc has run")
+	}
+	// Redrawn, with nothing changed, it does not run again.
+	tt.Frame()
+	if tt.FramePending() {
+		t.Error("the arc ran again")
+	}
+}

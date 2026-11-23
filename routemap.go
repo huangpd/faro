@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -35,6 +36,9 @@ const (
 type mapLayer struct {
 	cv  *ui.Canvas
 	key string
+
+	exit  string    // where the arc went when it last ran
+	start time.Time // when it started to run
 }
 
 // laneMap is the map of a lane. exit is where its exit is, nil if that is not
@@ -82,20 +86,27 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 	dot := func(x, y, rad float32, col ui.Color) {
 		p.Fill(ui.Rect{X: x - rad, Y: y - rad, W: 2 * rad, H: 2 * rad}, col, rad)
 	}
-	now := p.Now()
-	ring := func(x, y float32, col ui.Color, phase float64) {
-		u := float32(math.Mod(float64(now.UnixMilli())/1900+phase, 1))
-		rr := 3 + 9*u
-		p.Stroke(ui.Rect{X: x - rr, Y: y - rr, W: 2 * rr, H: 2 * rr}, col.Alpha((1-u)*0.55), rr, 1.2)
-	}
 	if !live {
 		col := a.k.text
 		if mode == mapClosed {
 			col = a.k.danger
 		}
 		dot(ax, ay, 2.8, col)
-		return // nothing moves: nothing asks for another frame
+		return
 	}
+
+	// The arc is drawn once, as the exit is set or changed: a light runs from here
+	// to there, leaving the line behind it, and then it stands still. Nothing asks
+	// for another frame after that, so a map costs nothing while it is looked at.
+	where := fmt.Sprintf("%.2f %.2f", to.Lat, to.Lon)
+	now := p.Now()
+	if layer.exit != where {
+		layer.exit, layer.start = where, now
+	}
+	u := float32(now.Sub(layer.start).Seconds() / mapRun.Seconds())
+	running := u < 1
+	u = min(max(u, 0), 1)
+	t := 1 - (1-u)*(1-u)*(1-u) // slows toward the end, as it arrives
 
 	// The arc bows up from the straight line between the two, by a third of its length.
 	bx, by := at(to)
@@ -111,35 +122,32 @@ func (a *app) drawMap(p *ui.Painter, id string, r ui.Rect, from geo.Point, exit 
 	}
 	cx, cy := mx+nx, my+ny
 	arc := func() *ui.Path { return new(ui.Path).MoveTo(ax, ay).QuadTo(cx, cy, bx, by) }
-	p.StrokePath(arc().Cap(ui.RoundCap), 1.3, hue.Alpha(0.34))
-	t := float32(math.Mod(float64(now.UnixMilli())/2800, 1))
-	for k, w := range []float32{1.4, 2, 2.6} { // a tail, brighter toward the head
-		from, to := t-0.06*float32(3-k), t-0.06*float32(2-k)
-		if to > 0 && from < 1 {
-			p.StrokePath(arc().Trim(max(from, 0), min(to, 1)).Cap(ui.RoundCap), w, hue.Alpha(0.35+0.25*float32(k)))
-		}
-	}
-	// The light itself, at t along the curve.
-	u := 1 - t
-	hx := u*u*ax + 2*u*t*cx + t*t*bx
-	hy := u*u*ay + 2*u*t*cy + t*t*by
-	p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
-		Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0), At: 1}}}, 9)
-	dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
+	p.StrokePath(arc().Trim(0, t).Cap(ui.RoundCap), 1.6, hue.Alpha(0.75))
 
-	ring(ax, ay, a.k.text, 0)
 	dot(ax, ay, 2.8, a.k.text)
-	ring(bx, by, hue, 0.5)
+	if running {
+		hx := (1-t)*(1-t)*ax + 2*(1-t)*t*cx + t*t*bx
+		hy := (1-t)*(1-t)*ay + 2*(1-t)*t*cy + t*t*by
+		p.FillRadialGradient(ui.Rect{X: hx - 9, Y: hy - 9, W: 18, H: 18}, ui.RadialGradient{Radius: 9,
+			Stops: []ui.GradientStop{{Color: hue.Alpha(0.7), At: 0}, {Color: hue.Alpha(0)}}}, 9)
+		dot(hx, hy, 1.8, ui.RGBA(255, 255, 255, 1))
+		p.AnimationFrameRate(30)
+		return
+	}
+	// Arrived: a ring round the exit, still, and its name.
+	p.Stroke(ui.Rect{X: bx - 7, Y: by - 7, W: 14, H: 14}, hue.Alpha(0.4), 7, 1.2)
 	dot(bx, by, 3.4, hue)
 	if label != "" {
-		lx := bx + 8
+		lx := bx + 10
 		if bx > r.X+r.W*0.7 { // not off the edge
-			lx = bx - 8 - 7*float32(len(label))
+			lx = bx - 10 - 7*float32(len(label))
 		}
 		p.Text(lx, by-6, label, 10, a.k.text2)
 	}
-	p.AnimationFrameRate(15)
 }
+
+// mapRun is how long the arc takes to run from here to the exit.
+const mapRun = 1300 * time.Millisecond
 
 // paintLand paints the land as dots, k pixels to a DIP, over a soft glow.
 func (a *app) paintLand(p *ui.Painter, vp geo.Viewport, hue ui.Color, w, h, k float32) {
