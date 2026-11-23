@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -48,6 +49,17 @@ func (p *prober) probe(ctx context.Context, tag string) (int, error) {
 	return ans, nil
 }
 
+// rtt answers the round trip to the node's server: as told, at once, and not counted.
+func (p *prober) rtt(_ context.Context, tag string) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ans, ok := p.answers[tag]
+	if !ok || ans < 0 {
+		return 0, errors.New("unreachable")
+	}
+	return ans, nil
+}
+
 func (p *prober) count(tag string) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -60,6 +72,7 @@ func engineWithNodes(t *testing.T, p *prober, names ...string) *Engine {
 	e := engineWith(t, &fetcher{}, 2*time.Hour, func(o *Options) {
 		o.RuleSetsFirst = time.Hour
 		o.Probe = p.probe
+		o.RTT = p.rtt
 	})
 	var ns []sub.Node
 	for _, n := range names {
@@ -196,5 +209,87 @@ func TestTestAllAndOneShareTheRecord(t *testing.T) {
 	waitFor(t, "b again", func() bool { return e.State().Delays["b"] == 25 })
 	if d := e.State().Delays; d["a"] != 10 || d["c"] != 30 {
 		t.Errorf("testing one node changed the others: %v", d)
+	}
+}
+
+func TestADistanceAndWhetherItWorksAreKeptApart(t *testing.T) {
+	var rtt, probe struct {
+		ms  int
+		err error
+	}
+	e := engineWith(t, &fetcher{}, 2*time.Hour, func(o *Options) {
+		o.RuleSetsFirst = time.Hour
+		o.RTT = func(context.Context, string) (int, error) { return rtt.ms, rtt.err }
+		o.Probe = func(context.Context, string) (int, error) { return probe.ms, probe.err }
+	})
+	e.store.Subs = []*sub.Subscription{{ID: "t", Name: "t", Nodes: []sub.Node{{Name: "n", Out: map[string]any{"type": "shadowsocks", "server": "h.example.com", "server_port": 1, "method": "aes-256-gcm", "password": "p"}}}}}
+	e.mu.Lock()
+	e.reloadLocked()
+	e.status = Running
+	e.mu.Unlock()
+	ask := func() (int, bool) {
+		e.TestNode("n")
+		waitFor(t, "the answer", func() bool { _, ok := e.State().Delays["n"]; return ok && !e.State().Testing["n"] })
+		st := e.State()
+		return st.Delays["n"], st.Works["n"]
+	}
+	no := errors.New("no")
+
+	rtt.ms, probe.ms = 200, 420 // the round trip is the delay; the request's time is not
+	if d, w := ask(); d != 200 || !w {
+		t.Errorf("delay %d, works %v: want 200 and true", d, w)
+	}
+	probe.ms, probe.err = 0, no // the server answers, but nothing goes through it
+	if d, w := ask(); d != 200 || w {
+		t.Errorf("delay %d, works %v: a server that answers is not a node that works", d, w)
+	}
+	rtt.ms, rtt.err, probe.ms, probe.err = 0, no, 390, nil // cannot be timed from here, yet it carries
+	if d, w := ask(); d != 390 || !w {
+		t.Errorf("delay %d, works %v: a node that works is not shown as no answer", d, w)
+	}
+	probe.ms, probe.err = 0, no // neither
+	if d, w := ask(); d != -1 || w {
+		t.Errorf("delay %d, works %v: want -1 and false", d, w)
+	}
+	if _, ok := e.State().Works["n"]; !ok {
+		t.Error("a failed test is not recorded as one")
+	}
+}
+
+func TestTheRoundTripToAServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	ms, err := dialRTT(context.Background(), "127.0.0.1", port)
+	if err != nil || ms < 1 || ms > 500 {
+		t.Errorf("%d ms, %v", ms, err)
+	}
+	if ms, err := dialRTT(context.Background(), "localhost", port); err != nil || ms < 1 {
+		t.Errorf("by name: %d ms, %v", ms, err)
+	}
+	ln.Close()
+	if ms, err := dialRTT(context.Background(), "127.0.0.1", port); err == nil {
+		t.Errorf("a closed port answered in %d ms", ms)
+	}
+	if _, err := dialRTT(context.Background(), "no-such-host.invalid", 443); err == nil {
+		t.Error("a name that is not there was timed")
+	}
+
+	a := addrOf("trojan", map[string]any{"server": "h.example", "server_port": 443})
+	b := addrOf("hysteria2", map[string]any{"server": "h.example", "server_port": float64(8443)})
+	if a.host != "h.example" || a.port != 443 || a.udp || b.port != 8443 || !b.udp {
+		t.Errorf("%+v %+v", a, b)
 	}
 }

@@ -1398,3 +1398,45 @@ func TestEveryArcIsOneLineAndTheMapClipsWhatRunsOffIt(t *testing.T) {
 		t.Error("a point split")
 	}
 }
+
+func TestDelayAndWorkingAreShownApart(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01")
+	usePreset(t, a, "ai-accounts")
+	st := a.eng.State()
+	tag := st.Plan.Routes[0].Nodes[0]
+	draw := func(d int, works *bool) *ui.Tester {
+		s := st
+		s.Delays = map[string]int{tag: d}
+		s.Works = map[string]bool{}
+		if works != nil {
+			s.Works[tag] = *works
+		}
+		return ui.NewTester(func(c *ui.Context) { a.delayPill(c, s, tag) }, 400, 60)
+	}
+	yes, no := true, false
+	view(a) // sets the look
+
+	tt := draw(214, &yes)
+	need(t, tt, "214 ms", "通")
+	if tt.HasText("不通") {
+		t.Error("a node that works is shown as not")
+	}
+	// The server answers, and nothing goes through it: the delay stands, and "不通" is apart from it.
+	tt = draw(214, &no)
+	need(t, tt, "214 ms", "不通")
+	// No answer at all: only the one word, no number.
+	tt = draw(-1, &no)
+	need(t, tt, "不通")
+	for _, txt := range tt.Texts() {
+		if strings.HasSuffix(txt, " ms") {
+			t.Errorf("a number for a node that did not answer: %q", txt)
+		}
+	}
+	// Not asked about yet whether it works: the delay alone.
+	tt = draw(95, nil)
+	need(t, tt, "95 ms")
+	if tt.HasText("通") || tt.HasText("不通") {
+		t.Error("a verdict before the test of it")
+	}
+}

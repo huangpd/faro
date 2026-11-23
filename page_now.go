@@ -237,29 +237,47 @@ func (a *app) mainLane(c *ui.Context, st engine.State) {
 
 func cur(st engine.State) string { return st.Choices[singcfg.TagProxy] }
 
-// delayPill is how fast an exit answered, in numbers and a word.
+// delayPill is how far away an exit is, in milliseconds (the round trip to its
+// server), and, apart from it, whether it works: whether a request goes out through it.
 func (a *app) delayPill(c *ui.Context, st engine.State, tag string) {
 	if tag == "" {
 		return
 	}
 	d, ok := st.Delays[tag]
+	works, known := st.Works[tag]
 	switch {
 	case st.Testing[tag]:
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Spinner(c).Size(12, 12).Label("正在测试")
 			ui.Text(c, "测试中").FontSize(fsCaption).TextColor(a.k.text2)
 		})
+		return
 	case !ok:
 		return
-	case d < 0:
-		a.pill(c, "超时", a.k.danger)
-	case d < 250:
-		a.pill(c, fmt.Sprintf("%d ms", d), a.k.ok)
-	case d < 600:
-		a.pill(c, fmt.Sprintf("%d ms", d), a.k.warn)
-	default:
-		a.pill(c, fmt.Sprintf("%d ms", d), a.k.danger)
+	case d < 0: // no answer at all: the one word says it
+		a.pill(c, "不通", a.k.danger)
+		return
 	}
+	a.pill(c, fmt.Sprintf("%d ms", d), delayColor(a, d))
+	if known {
+		if works {
+			a.pill(c, "通", a.k.ok)
+		} else {
+			a.pill(c, "不通", a.k.danger)
+		}
+	}
+}
+
+// delayColor tells how long a round trip is: under a quarter of a second is
+// good, under half is middling.
+func delayColor(a *app, d int) ui.Color {
+	switch {
+	case d < 250:
+		return a.k.ok
+	case d < 500:
+		return a.k.warn
+	}
+	return a.k.danger
 }
 
 // nodeChips lets you pick one of a route's nodes: a tidy grid, in natural order,
@@ -382,21 +400,23 @@ func (a *app) chip(c *ui.Context, st engine.State, tag, prefix string, on bool, 
 }
 
 // testState is the end of a chip: turning while it is being tested, then the
-// answer in milliseconds, or that it did not answer. Nothing before the first test.
+// round trip in milliseconds with a mark beside it for whether the node works, or
+// that it did not answer. Nothing before the first test.
 func (a *app) testState(c *ui.Context, st engine.State, tag string) {
-	switch d, ok := st.Delays[tag]; {
+	d, ok := st.Delays[tag]
+	works, known := st.Works[tag]
+	switch {
 	case st.Testing[tag]:
 		ui.Spinner(c).Size(13, 13).Label("正在测试")
 	case !ok:
 	case d < 0:
 		mono(ui.Text(c, "不通").FontSize(fsCaption).FontWeight(600).TextColor(a.k.danger)).SingleLine()
 	default:
-		col := a.k.ok
-		if d >= 600 {
-			col = a.k.danger
-		} else if d >= 250 {
-			col = a.k.warn
+		mono(ui.Text(c, fmt.Sprintf("%d", d)).FontSize(fsCaption).FontWeight(600).TextColor(delayColor(a, d))).SingleLine()
+		if known && works {
+			icon(c, "check", 12, a.k.ok).Label("通")
+		} else if known {
+			icon(c, "x", 12, a.k.danger).Label("不通")
 		}
-		mono(ui.Text(c, fmt.Sprintf("%d", d)).FontSize(fsCaption).FontWeight(600).TextColor(col)).SingleLine()
 	}
 }

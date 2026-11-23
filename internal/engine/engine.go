@@ -68,6 +68,9 @@ type Options struct {
 	Now          func() time.Time
 	// ProbeURL is what a node is tested against; empty is singcfg.ProbeURL. For tests.
 	ProbeURL string
+	// RTT times the round trip to a node's server, in ms; zero is a TCP connect to
+	// it. For tests.
+	RTT func(ctx context.Context, tag string) (int, error)
 	// Probe times one node through the running core: ms, or an error. Nil asks the
 	// core (clashapi Delay). A hook, so that the engine's bookkeeping of tests can be
 	// tested apart from the core's.
@@ -113,7 +116,8 @@ type State struct {
 	// group in GroupErrors (by name) is not in force, and the value says why.
 	Groups      []domains.Group
 	GroupErrors map[string]string
-	Delays      map[string]int    // ms by node tag; -1 failed; absent untested
+	Delays      map[string]int    // ms by node tag, the round trip to its server; -1 no answer; absent untested
+	Works       map[string]bool   // whether a request went out through the node; absent untested
 	Testing     map[string]bool   // nodes being tested now
 	SystemProxy bool              // whether the user wants the system proxy on
 	LightMode   bool              // the window is not opened unless asked for
@@ -163,6 +167,8 @@ type Engine struct {
 	groupsList    []domains.Group
 	groupErrs     map[string]string
 	delays        map[string]int
+	works         map[string]bool
+	addrs         map[string]nodeAddr // where each node's server is
 	testing       map[string]bool
 	subs          []sub.Subscription
 	nodes         []Node
@@ -205,7 +211,7 @@ func New(opts Options) (*Engine, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	e := &Engine{opts: opts, status: Stopped, delays: map[string]int{}, testing: map[string]bool{}, choices: map[string]string{}, quit: make(chan struct{})}
+	e := &Engine{opts: opts, status: Stopped, delays: map[string]int{}, works: map[string]bool{}, testing: map[string]bool{}, choices: map[string]string{}, quit: make(chan struct{})}
 	var err error
 	if e.core, err = core.New(opts.ResourcesDir, e.changed); err != nil {
 		return nil, err
@@ -279,7 +285,7 @@ func (e *Engine) State() State {
 		Choices:    copyMap(e.choices),
 		Plan:       e.plan,
 		PlanErrors: append([]rules.Error(nil), e.planErrs...),
-		RulesText:  e.rulesText, Groups: domains.Copy(e.groupsList), GroupErrors: copyMap(e.groupErrs), Delays: copyInts(e.delays), Testing: copyBools(e.testing),
+		RulesText:  e.rulesText, Groups: domains.Copy(e.groupsList), GroupErrors: copyMap(e.groupErrs), Delays: copyInts(e.delays), Works: copyBools(e.works), Testing: copyBools(e.testing),
 		SystemProxy: e.prefs.SystemProxy, LightMode: e.prefs.LightMode, MixedPort: e.prefs.MixedPort,
 		Notes: e.core.Notes(), DataDir: e.core.Dir(),
 		DNS:             singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign},
@@ -332,11 +338,13 @@ func (e *Engine) reloadLocked() {
 	e.subs, e.choices = subs, choices
 	outs := e.store.Outbounds()
 	e.nodes = e.nodes[:0]
+	e.addrs = map[string]nodeAddr{}
 	tags := make([]string, 0, len(outs))
 	for _, o := range outs {
 		kind, _ := o.Out["type"].(string)
 		e.nodes = append(e.nodes, Node{o.Tag, kind})
 		tags = append(tags, o.Tag)
+		e.addrs[o.Tag] = addrOf(kind, o.Out)
 	}
 	if sel := e.choices[singcfg.TagProxy]; sel != "" {
 		found := false
@@ -619,7 +627,7 @@ func (e *Engine) TestAll() {
 	for i, n := range e.nodes {
 		tags[i] = n.Tag
 	}
-	e.delays = map[string]int{}
+	e.delays, e.works = map[string]int{}, map[string]bool{}
 	e.mu.Unlock()
 	e.changed()
 	api := e.core.API()
@@ -634,12 +642,9 @@ func (e *Engine) TestAll() {
 				defer func() { <-sem }()
 				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 				defer cancel()
-				d, err := e.probe(ctx, api, tag)
-				if err != nil || d <= 0 {
-					d = -1
-				}
+				rtt, works := e.measure(ctx, api, tag)
 				e.mu.Lock()
-				e.delays[tag] = d
+				e.delays[tag], e.works[tag] = rtt, works
 				e.mu.Unlock()
 				e.changed()
 			}()
@@ -660,8 +665,8 @@ func (e *Engine) probe(ctx context.Context, api *clashapi.Client, tag string) (i
 	return api.Delay(ctx, tag, url)
 }
 
-// TestNode times one node, now: whether it can carry a request out and how long
-// that takes. It is what choosing a node does, so that you see at once whether
+// TestNode times one node, now: how long the round trip to its server takes, and
+// whether it can carry a request out. It is what choosing a node does, so that you see at once whether
 // the exit you picked works; clicking the node again tests it again. Nothing
 // happens if the core is stopped (the node is not loaded then) or the node is
 // being tested already.
@@ -681,6 +686,7 @@ func (e *Engine) TestNode(tag string) {
 	}
 	e.testing[tag] = true
 	delete(e.delays, tag) // the old answer is not the answer: show it is being asked again
+	delete(e.works, tag)
 	api := e.core.API()
 	g := e.gen
 	e.mu.Unlock()
@@ -688,14 +694,11 @@ func (e *Engine) TestNode(tag string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
-		d, err := e.probe(ctx, api, tag)
-		if err != nil || d <= 0 {
-			d = -1
-		}
+		rtt, works := e.measure(ctx, api, tag)
 		e.mu.Lock()
 		delete(e.testing, tag)
 		if e.gen == g { // not for a core that has since gone: its answer is about nothing
-			e.delays[tag] = d
+			e.delays[tag], e.works[tag] = rtt, works
 		}
 		e.mu.Unlock()
 		e.changed()
