@@ -47,29 +47,53 @@ func (e *Engine) kickExits() {
 	}
 }
 
-// watchExits checks the run's routes now, then as asked and every few minutes,
-// until the run ends.
+// watchExits checks the run's routes now, then as asked, and on a timer whose
+// interval and hours are set in prefs.json (exitCheck), until the run ends. The
+// setting is read again after each wait, so a change counts at the next one.
 func (e *Engine) watchExits(ctx context.Context, g int) {
-	every := e.opts.ExitEvery
-	if every == 0 {
-		every = 2 * time.Minute
-	}
-	tick := time.NewTicker(every)
-	defer tick.Stop()
+	check := true
 	for {
 		if !e.current(g) {
 			return
 		}
-		e.checkExits(ctx, g)
+		if check {
+			e.checkExits(ctx, g)
+		}
+		every, inHours := e.exitSchedule()
+		tick := time.NewTimer(every)
 		select {
 		case <-ctx.Done():
+			tick.Stop()
 			return
 		case <-e.quit:
+			tick.Stop()
 			return
 		case <-tick.C:
+			check = inHours(e.opts.Now())
 		case <-e.exitKick:
+			tick.Stop()
+			check = true // asked for: the start, a new node; always, whatever the hours
 		}
 	}
+}
+
+// exitSchedule is how often the exits are checked, and in which hours: the
+// test's own interval if it set one, else what prefs.json says.
+func (e *Engine) exitSchedule() (time.Duration, func(time.Time) bool) {
+	if e.opts.ExitEvery != 0 {
+		return e.opts.ExitEvery, func(time.Time) bool { return true }
+	}
+	e.mu.Lock()
+	x, err := e.prefs.ReloadExitCheck()
+	e.mu.Unlock()
+	every, inHours, perr := x.Schedule()
+	if err == nil {
+		err = perr
+	}
+	if err != nil {
+		e.fail(fmt.Errorf("prefs.json: %w", err))
+	}
+	return every, inHours
 }
 
 // checkExits asks each checked route where it leaves from, and opens or cuts it.

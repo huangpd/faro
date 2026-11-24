@@ -72,8 +72,8 @@ type Options struct {
 	// it. For tests.
 	RTT func(ctx context.Context, tag string) (int, error)
 	// ExitIP asks where a route group leaves from; zero asks Cloudflare through
-	// the group's check entrance. ExitEvery is how often it is asked: 2 minutes
-	// when zero. For tests.
+	// the group's check entrance. ExitEvery is how often it is asked, all day;
+	// when zero, prefs.json's exitCheck says. For tests.
 	ExitIP    func(ctx context.Context, group string) (string, error)
 	ExitEvery time.Duration
 	// Alert tells the person something they must know now, as a notification.
