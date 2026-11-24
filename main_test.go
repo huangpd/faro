@@ -142,7 +142,15 @@ func TestRunningShowsInTheSidebar(t *testing.T) {
 	a.eng.Start()
 	wait(t, "running", func() bool { return a.eng.State().Status == engine.Running })
 	tt := view(a)
-	need(t, tt, "运行中")
+	need(t, tt, "仅本地代理")
+	a.eng.SetSystemProxy(true)
+	need(t, view(a), "系统代理已开启")
+	a.eng.SetSystemProxy(false)
+	tt = view(a)
+	need(t, tt, "仅本地代理")
+	if tt.HasText("系统代理已开启") {
+		t.Error("the sidebar still shows the system proxy as enabled")
+	}
 	if tt.HasText("启动") || tt.HasText("停止") {
 		t.Error("manual core controls are visible")
 	}

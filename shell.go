@@ -143,7 +143,11 @@ func (a *app) ambient(c *ui.Context, st engine.State) {
 			label := "未运行"
 			switch st.Status {
 			case engine.Running:
-				dot, label = a.k.ok, "运行中"
+				if st.SystemProxy {
+					dot, label = a.k.ok, "系统代理已开启"
+				} else {
+					label = "仅本地代理"
+				}
 			case engine.Starting:
 				dot, label = a.k.warn, "正在启动"
 			}
