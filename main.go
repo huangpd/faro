@@ -169,9 +169,7 @@ func main() {
 		if opensWindowAtStart(eng.State(), os.Getenv("FARO_BACKGROUND") != "") { // menu bar only: light mode, or at login
 			a.openWindow()
 		}
-		if os.Getenv("FARO_START") != "" {
-			eng.Start()
-		}
+		eng.Start()
 		st := eng.State()
 		a.menuSig = menuSignature(st)
 		tray, err := mygo.NewTray(mygo.TrayOptions{

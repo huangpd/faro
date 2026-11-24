@@ -34,7 +34,9 @@ runs as a separate process and is controlled through its Clash API.
 - **Light mode.** The window stays shut; the core and the menu bar keep running.
   A window costs about 150 MB, the menu bar alone about 20 MB.
 - Menu-bar item with the speed, the gates and the nodes; system proxy switch;
-  editable local port; dark and light appearance.
+  editable local port; dark and light appearance. Faro starts the local proxy
+  automatically. Turn on **System Proxy** to have macOS use it; turning the
+  switch off leaves the local port available to manually configured apps.
 
 ## The rules language
 

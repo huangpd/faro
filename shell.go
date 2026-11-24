@@ -135,7 +135,7 @@ func (a *app) anyGateShut(st engine.State) bool {
 }
 
 // ambient is at the foot of the sidebar on every page: the speed, and whether
-// Faro is working; with the one control that matters.
+// Faro is working.
 func (a *app) ambient(c *ui.Context, st engine.State) {
 	ui.Column(c).Gap(10).Padding(14).Radius(14).Background(a.k.surface).Border(1, a.k.border).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -160,18 +160,6 @@ func (a *app) ambient(c *ui.Context, st engine.State) {
 				mono(ui.Text(c, rateText(st.Rate.Up)).FontSize(fsMeta)).SingleLine()
 			})
 		})
-		switch st.Status {
-		case engine.Running:
-			if a.button(c, btnSecondary, "square", "停止").Clicked() {
-				a.eng.Stop()
-			}
-		case engine.Starting:
-			a.button(c, btnSecondary, "", "正在启动…").Disabled(true)
-		default:
-			if a.button(c, btnPrimary, "play", "启动").Clicked() {
-				a.eng.Start()
-			}
-		}
 	})
 }
 

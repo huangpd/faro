@@ -299,14 +299,13 @@ func TestSystemProxyFollowsTheCore(t *testing.T) {
 	e := newEngine(t, f.run)
 	port := strconv.Itoa(e.State().MixedPort)
 
-	// Wanted while stopped: nothing is touched until the core runs.
-	e.SetSystemProxy(true)
-	time.Sleep(200 * time.Millisecond)
-	if f.enabledPort() != "" {
-		t.Fatal("the system proxy was set with no core to point at")
-	}
+	// Start with traffic opt-in off: the local port works without touching macOS.
 	e.Start()
 	waitFor(t, "running", func() bool { return e.State().Status == Running })
+	if f.enabledPort() != "" {
+		t.Fatal("starting the core enabled the system proxy")
+	}
+	e.SetSystemProxy(true)
 	waitFor(t, "the proxy set", func() bool { return f.enabledPort() == port })
 
 	// Stop puts it back before the core goes.
@@ -317,8 +316,8 @@ func TestSystemProxyFollowsTheCore(t *testing.T) {
 		t.Error("the backup was left")
 	}
 
-	// Turned off while running: put back, and the core goes on.
-	e.Start()
+	// Enabling while stopped starts the core without a separate start action.
+	e.SetSystemProxy(true)
 	waitFor(t, "set again", func() bool { return f.enabledPort() == port })
 	e.SetSystemProxy(false)
 	waitFor(t, "put back", func() bool { return f.enabledPort() == "" })

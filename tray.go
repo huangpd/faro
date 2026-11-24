@@ -42,12 +42,6 @@ func (a *app) trayItems(st engine.State) []*mygo.MenuItem {
 	}
 	items = append(items, &mygo.MenuItem{Label: state, Disabled: true}, mygo.Separator())
 
-	if st.Status == engine.Running {
-		items = append(items, &mygo.MenuItem{Label: "停止", Click: func(*mygo.MenuItem, *mygo.Window) { a.eng.Stop() }})
-	} else {
-		items = append(items, &mygo.MenuItem{Label: "启动", Disabled: st.Status == engine.Starting,
-			Click: func(*mygo.MenuItem, *mygo.Window) { a.eng.Start() }})
-	}
 	items = append(items, &mygo.MenuItem{Label: "系统代理", Type: mygo.MenuItemCheckbox, Checked: st.SystemProxy,
 		Click: func(m *mygo.MenuItem, _ *mygo.Window) { a.eng.SetSystemProxy(m.Checked) }})
 

@@ -105,7 +105,7 @@ func need(t *testing.T, tt *ui.Tester, wants ...string) {
 func TestShellHasEveryPlaceAndTheLocalProxy(t *testing.T) {
 	a := newTestApp(t)
 	tt := view(a)
-	need(t, tt, "Faro", "现在", "订阅", "连接", "规则", "日志", "设置", "未运行", "启动")
+	need(t, tt, "Faro", "现在", "订阅", "连接", "规则", "日志", "设置", "未运行", "系统代理")
 	if !tt.HasText(fmt.Sprintf("127.0.0.1:%d", a.eng.State().MixedPort)) {
 		t.Error("the proxy address is not shown")
 	}
@@ -142,9 +142,9 @@ func TestRunningShowsInTheSidebar(t *testing.T) {
 	a.eng.Start()
 	wait(t, "running", func() bool { return a.eng.State().Status == engine.Running })
 	tt := view(a)
-	need(t, tt, "运行中", "停止")
-	if tt.HasText("启动") {
-		t.Error("Start is offered while running")
+	need(t, tt, "运行中")
+	if tt.HasText("启动") || tt.HasText("停止") {
+		t.Error("manual core controls are visible")
 	}
 	// An error is shown where it can be read.
 	a.eng.AddSubscription("ftp://nope")
@@ -414,7 +414,7 @@ func (a *app) items() []*mygo.MenuItem { return a.trayItems(a.eng.State()) }
 func TestTrayMenuStoppedWithoutNodes(t *testing.T) {
 	a := newTestApp(t)
 	got := strings.Join(labels(a.items()), " | ")
-	want := "未运行 | - | 启动 | 系统代理 | - | 轻量模式 | 打开 Faro | <quit>"
+	want := "未运行 | - | 系统代理 | - | 轻量模式 | 打开 Faro | <quit>"
 	if got != want {
 		t.Errorf("menu:\n got  %s\n want %s", got, want)
 	}
@@ -519,22 +519,32 @@ func TestTrayClicksDoTheSameAsTheWindow(t *testing.T) {
 	}
 }
 
-func TestTrayStartStopAndState(t *testing.T) {
+func TestTraySystemProxyStartsCore(t *testing.T) {
 	a := newTestApp(t)
-	if it := find(a.items(), "启动"); it == nil || it.Disabled {
-		t.Errorf("stopped: %v", labels(a.items()))
+	findProxy := func() *mygo.MenuItem {
+		items := a.items()
+		if find(items, "启动") != nil || find(items, "停止") != nil {
+			t.Fatalf("manual core controls are visible: %v", labels(items))
+		}
+		item := find(items, "系统代理")
+		if item == nil || item.Disabled {
+			t.Fatalf("no system proxy switch: %v", labels(items))
+		}
+		return item
 	}
-	a.eng.SetSystemProxy(true)
-	start := find(a.items(), "启动")
-	start.Click(start, nil)
+	sp := findProxy()
+	sp.Checked = true
+	sp.Click(sp, nil)
 	wait(t, "running", func() bool { return a.eng.State().Status == engine.Running })
-	items := a.items()
-	if find(items, "停止") == nil || find(items, "启动") != nil || find(items, "运行中 · 系统代理已开") == nil {
-		t.Errorf("running: %v", labels(items))
+	sp = findProxy()
+	if !sp.Checked || find(a.items(), "运行中 · 系统代理已开") == nil {
+		t.Errorf("running: %v", labels(a.items()))
 	}
-	stop := find(items, "停止")
-	stop.Click(stop, nil)
-	wait(t, "stopped", func() bool { return a.eng.State().Status == engine.Stopped })
+	sp.Checked = false
+	sp.Click(sp, nil)
+	if findProxy().Checked || a.eng.State().Status != engine.Running {
+		t.Error("turning off system proxy should leave the local proxy running")
+	}
 }
 
 // The menu is made again only when what it shows changes: not with every

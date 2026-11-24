@@ -131,6 +131,7 @@ type Engine struct {
 
 	setsDir string
 
+	proxyMu       sync.Mutex // serializes applying the latest system-proxy preference
 	mu            sync.Mutex
 	status        string
 	version       string
@@ -814,28 +815,42 @@ func (e *Engine) maybeUpdateRuleSets() {
 
 // ---- the system proxy
 
-// SetSystemProxy remembers the choice and applies it: on while the core
-// runs, off otherwise.
+// SetSystemProxy remembers whether macOS should use the local proxy. If the
+// core is stopped (for example after a failure), enabling also retries it.
 func (e *Engine) SetSystemProxy(on bool) {
 	e.mu.Lock()
 	e.prefs.SystemProxy = on
 	e.err = ""
-	if err := e.prefs.Save(); err != nil {
-		e.err = err.Error()
-	}
-	running, port := e.status == Running, e.prefs.MixedPort
+	saveErr := e.prefs.Save()
 	e.mu.Unlock()
+	if on {
+		e.Start()
+	}
+	e.fail(saveErr)
 	e.changed()
-	go func() {
-		var err error
-		switch {
-		case on && running:
-			err = e.proxy.Enable("127.0.0.1", port)
-		case !on:
-			err = e.proxy.Disable()
-		}
-		e.fail(err)
-	}()
+	go func() { e.fail(e.syncSystemProxy()) }()
+}
+
+// The switch and readiness callbacks can overlap. Read the latest preference
+// only once we have the lock, so a stale callback cannot undo a newer toggle.
+func (e *Engine) syncSystemProxy() error {
+	e.proxyMu.Lock()
+	defer e.proxyMu.Unlock()
+	e.mu.Lock()
+	running, want := e.status == Running, e.prefs.SystemProxy
+	e.mu.Unlock()
+	select {
+	case <-e.quit:
+		return nil
+	default:
+	}
+	if !want {
+		return e.proxy.Disable()
+	}
+	if running {
+		return e.proxy.Enable("127.0.0.1", e.core.MixedPort())
+	}
+	return nil
 }
 
 // SetLightMode remembers whether Faro keeps to the menu bar. Nothing else
@@ -1001,7 +1016,9 @@ func (e *Engine) Close() {
 		e.cancel()
 	}
 	e.mu.Unlock()
+	e.proxyMu.Lock()
 	_ = e.proxy.Disable()
+	e.proxyMu.Unlock()
 	e.core.Stop()
 }
 
@@ -1080,13 +1097,10 @@ func (e *Engine) run(g int) {
 		return
 	}
 	e.status, e.version = Running, v.Version
-	want := e.prefs.SystemProxy
 	e.mu.Unlock()
 	e.changed()
 	go e.maybeUpdateRuleSets() // now there is a proxy to fetch through, if the direct way failed
-	if want {
-		e.fail(e.proxy.Enable("127.0.0.1", e.core.MixedPort()))
-	}
+	e.fail(e.syncSystemProxy())
 	_ = e.core.API().StreamTraffic(ctx, func(t clashapi.Traffic) {
 		e.mu.Lock()
 		if e.gen == g {
