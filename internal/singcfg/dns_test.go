@@ -57,7 +57,7 @@ func TestDNSSplitsDomesticAndForeign(t *testing.T) {
 	}
 	// Foreign: encrypted, and THROUGH the proxy.
 	f := sv["foreign"]
-	if f == nil || f["type"] != "https" || f["server"] != "1.1.1.1" || f["detour"] != "proxy" {
+	if f == nil || f["type"] != "https" || f["server"] != "8.8.8.8" || f["tls"].(map[string]any)["server_name"] != "dns.google" || f["detour"] != "proxy" {
 		t.Errorf("foreign server %v", f)
 	}
 	// Names in China go to the domestic one; everything else to the foreign one.
@@ -132,18 +132,18 @@ func TestDNSWithoutTheChinaRuleSetSendsEverythingThroughTheProxy(t *testing.T) {
 }
 
 func TestChoosingDNSServers(t *testing.T) {
-	dns, _, _ := buildDNS(t, true, DNSChoice{Domestic: "dnspod", Foreign: "google"}, true)
+	dns, _, _ := buildDNS(t, true, DNSChoice{Domestic: "dnspod", Foreign: "cloudflare"}, true)
 	sv := serversByTag(dns)
 	if sv["domestic"]["server"] != "120.53.53.53" || sv["domestic"]["tls"].(map[string]any)["server_name"] != "doh.pub" {
 		t.Errorf("domestic %v", sv["domestic"])
 	}
-	if sv["foreign"]["server"] != "8.8.8.8" || sv["foreign"]["tls"].(map[string]any)["server_name"] != "dns.google" {
+	if sv["foreign"]["server"] != "1.1.1.1" || sv["foreign"]["tls"].(map[string]any)["server_name"] != "cloudflare-dns.com" {
 		t.Errorf("foreign %v", sv["foreign"])
 	}
 	// An unknown id is the first of its side, not an error and not nothing.
 	dns, _, _ = buildDNS(t, true, DNSChoice{Domestic: "no-such", Foreign: ""}, true)
 	sv = serversByTag(dns)
-	if sv["domestic"]["server"] != "223.5.5.5" || sv["foreign"]["server"] != "1.1.1.1" {
+	if sv["domestic"]["server"] != "223.5.5.5" || sv["foreign"]["server"] != "8.8.8.8" {
 		t.Errorf("defaults: %v %v", sv["domestic"], sv["foreign"])
 	}
 	// A foreign id on the domestic side does not give a foreign server there.

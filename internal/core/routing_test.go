@@ -418,15 +418,15 @@ func TestForeignNamesAreLookedUpThroughTheProxy(t *testing.T) {
 	text := "direct set:geosite-cn\ndirect set:geoip-cn\n"
 	r := newRig(t, text, []string{"UK 01"}, nil)
 	time.Sleep(1500 * time.Millisecond) // the automatic health checks of the nodes are over
-	before := r.anyNodeSaw("1.1.1.1")
+	before := r.anyNodeSaw("8.8.8.8")
 
 	// example.org is not in China: it must be looked up, and by the foreign server, via the node.
 	r.connect("example.org")
 	waitFor := time.Now().Add(5 * time.Second)
-	for !r.anyNodeSaw("1.1.1.1") && time.Now().Before(waitFor) {
+	for !r.anyNodeSaw("8.8.8.8") && time.Now().Before(waitFor) {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if !r.anyNodeSaw("1.1.1.1") {
+	if !r.anyNodeSaw("8.8.8.8") {
 		t.Fatalf("a foreign name was looked up, but not through the proxy: the node saw no connection to the foreign DNS server (saw it before: %v)", before)
 	}
 	// And never the domestic server, which is asked directly, not through the node.
@@ -447,7 +447,7 @@ func TestNamesInChinaAreNotLookedUpThroughTheProxy(t *testing.T) {
 
 	r.connect("www.baidu.com")
 	time.Sleep(2 * time.Second)
-	if r.anyNodeSaw("1.1.1.1") {
+	if r.anyNodeSaw("8.8.8.8") {
 		t.Error("a name in China was looked up through the proxy, by the foreign server")
 	}
 	if r.anyNodeSaw("www.baidu.com") {
@@ -456,10 +456,10 @@ func TestNamesInChinaAreNotLookedUpThroughTheProxy(t *testing.T) {
 	// The control: a name that is not in China, with the same rules, is looked up through it.
 	r.connect("example.org")
 	deadline := time.Now().Add(5 * time.Second)
-	for !r.anyNodeSaw("1.1.1.1") && time.Now().Before(deadline) {
+	for !r.anyNodeSaw("8.8.8.8") && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if !r.anyNodeSaw("1.1.1.1") {
+	if !r.anyNodeSaw("8.8.8.8") {
 		t.Error("the control failed: a foreign name was not looked up through the proxy, so the check above proves nothing")
 	}
 }
@@ -474,7 +474,7 @@ func TestRoutedNamesAreNotLookedUpHere(t *testing.T) {
 	if !r.nodes["UK 01"].saw("www.example.com") {
 		t.Fatal("the node was not handed the name")
 	}
-	if r.anyNodeSaw("1.1.1.1") || r.anyNodeSaw("223.5.5.5") {
+	if r.anyNodeSaw("8.8.8.8") || r.anyNodeSaw("223.5.5.5") {
 		t.Error("a routed name caused a DNS lookup")
 	}
 }

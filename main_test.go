@@ -868,17 +868,17 @@ func TestTrayClickingANodeAlsoTestsIt(t *testing.T) {
 
 func TestSettingsShowsDNSAndChoosingReachesTheEngine(t *testing.T) {
 	a := newTestApp(t)
-	need(t, view(a, "设置"), "DNS", "国内网站", "其他网站", "阿里 AliDNS", "Cloudflare")
+	need(t, view(a, "设置"), "DNS", "国内网站", "其他网站", "阿里 AliDNS", "Google")
 	// A choice reaches the engine, and keeps the other side as it was.
 	a.setDNS("dnspod", "")
-	if st := a.eng.State(); st.DNS.Domestic != "dnspod" || st.DNS.Foreign != "cloudflare" {
-		t.Errorf("chose %+v: the side left empty is the first, cloudflare", st.DNS)
+	if st := a.eng.State(); st.DNS.Domestic != "dnspod" || st.DNS.Foreign != "google" {
+		t.Errorf("chose %+v: the side left empty is the first, google", st.DNS)
 	}
-	a.setDNS("dnspod", "google")
-	if st := a.eng.State(); st.DNS.Foreign != "google" || st.DNS.Domestic != "dnspod" {
+	a.setDNS("dnspod", "cloudflare")
+	if st := a.eng.State(); st.DNS.Foreign != "cloudflare" || st.DNS.Domestic != "dnspod" {
 		t.Errorf("chose %+v", st.DNS)
 	}
-	need(t, view(a, "设置"), "腾讯 DNSPod", "Google")
+	need(t, view(a, "设置"), "腾讯 DNSPod", "Cloudflare")
 }
 
 // The screens say what is so, not how things work. A sentence (a clause, a full
