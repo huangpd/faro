@@ -107,42 +107,57 @@ func (a *app) lane(c *ui.Context, st engine.State, r rules.Route, hue ui.Color) 
 	card := ui.Row(c).Background(a.k.surface).Border(1, edge).Radius(16).Gap(0).AlignItems(ui.Stretch).Clip()
 	card.Children(func() {
 		ui.Box(c).Width(4).Background(hue) // the route's hue: always beside its name
-		ui.Column(c).Grow(1).Padding(14, 16).Gap(10).Children(func() {
-			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Column(c).Grow(1).Gap(2).Children(func() {
-					ui.Text(c, r.ID).FontSize(fsHeading).FontWeight(600)
-					ui.Text(c, laneKind(r)).FontSize(fsMeta).TextColor(a.k.text2)
+		ui.Column(c).Grow(1).Children(func() {
+			ui.Row(c).AlignItems(ui.Stretch).Children(func() { a.laneTop(c, st, r, hue, blocked) })
+			if !blocked && a.expanded[r.ID] {
+				chipsBelow(c, func() {
+					a.nodeChips(c, st, r.Nodes, r.Chosen, r.Fast, func(tag string) { a.eng.Choose(r.ID, tag) })
 				})
-				if r.Gate && !blocked {
-					a.gate(c, r)
-				}
-			})
-			if blocked {
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					icon(c, "shield-alert", 14, a.k.danger)
-					ui.Text(c, "没有符合的节点，发往它的流量会被阻断，不会换别的出口").FontSize(fsBody).TextColor(a.k.danger)
-				})
-				return
-			}
-			a.laneExit(c, st, r)
-			if len(r.Exit) > 0 {
-				a.exitLine(c, st, r)
-			}
-			if a.expanded[r.ID] {
-				a.nodeChips(c, st, r.Nodes, r.Chosen, r.Fast, func(tag string) { a.eng.Choose(r.ID, tag) })
 			}
 		})
-		if !blocked {
-			mode := mapLive
-			if r.Closed || (len(r.Exit) > 0 && !st.Exits[r.ID].OK) { // cut by hand, or by its check
-				mode = mapClosed
-			}
-			exit, label := laneExitPlace(st, r)
-			ui.Column(c).Padding(10, 14, 10, 0).Justify(ui.Center).Children(func() {
-				a.laneMap(c, r.ID, hue, exit, label, mode)
+	})
+}
+
+// laneTop is a lane's name, gate and exit, with its map beside them.
+func (a *app) laneTop(c *ui.Context, st engine.State, r rules.Route, hue ui.Color, blocked bool) {
+	ui.Column(c).Grow(1).Padding(14, 16).Gap(10).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Column(c).Grow(1).Gap(2).Children(func() {
+				ui.Text(c, r.ID).FontSize(fsHeading).FontWeight(600)
+				ui.Text(c, laneKind(r)).FontSize(fsMeta).TextColor(a.k.text2)
 			})
+			if r.Gate && !blocked {
+				a.gate(c, r)
+			}
+		})
+		if blocked {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				icon(c, "shield-alert", 14, a.k.danger)
+				ui.Text(c, "没有符合的节点，发往它的流量会被阻断，不会换别的出口").FontSize(fsBody).TextColor(a.k.danger)
+			})
+			return
+		}
+		a.laneExit(c, st, r)
+		if len(r.Exit) > 0 {
+			a.exitLine(c, st, r)
 		}
 	})
+	if !blocked {
+		mode := mapLive
+		if r.Closed || (len(r.Exit) > 0 && !st.Exits[r.ID].OK) { // cut by hand, or by its check
+			mode = mapClosed
+		}
+		exit, label := laneExitPlace(st, r)
+		ui.Column(c).Padding(10, 14, 10, 0).Justify(ui.Center).Children(func() {
+			a.laneMap(c, r.ID, hue, exit, label, mode)
+		})
+	}
+}
+
+// chipsBelow holds a lane's node grid under its top row, across the whole card
+// and not only beside the map.
+func chipsBelow(c *ui.Context, children func()) {
+	ui.Column(c).Padding(0, 16, 14, 16).Gap(10).Children(children)
 }
 
 func laneKind(r rules.Route) string {
@@ -208,34 +223,43 @@ func (a *app) laneExit(c *ui.Context, st engine.State, r rules.Route) {
 func (a *app) mainLane(c *ui.Context, st engine.State) {
 	ui.Row(c).Background(a.k.surface).Border(1, a.k.border).Radius(16).AlignItems(ui.Stretch).Clip().Children(func() {
 		ui.Box(c).Width(4).Background(a.k.text2.Alpha(0.5))
-		ui.Column(c).Grow(1).Padding(14, 16).Gap(10).Children(func() {
-			ui.Text(c, "proxy").FontSize(fsHeading).FontWeight(600)
-			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				cur := st.Choices[singcfg.TagProxy]
-				ui.Text(c, "→").FontSize(fsBody).TextColor(a.k.text2)
-				name := "自动选最快"
-				if cur != "" {
-					name = shorten(cur, 34)
-				}
-				mono(ui.Text(c, name).FontSize(fsBody)).SingleLine().Tooltip(name)
-				a.delayPill(c, st, cur)
-				ui.Spacer(c)
-				label := "更换"
-				if a.expanded[singcfg.TagProxy] {
-					label = "收起"
-				}
-				if a.button(c, btnGhost, "", label).Clicked() {
-					a.expanded[singcfg.TagProxy] = !a.expanded[singcfg.TagProxy]
-				}
-			})
+		ui.Column(c).Grow(1).Children(func() {
+			ui.Row(c).AlignItems(ui.Stretch).Children(func() { a.mainTop(c, st) })
 			if a.expanded[singcfg.TagProxy] {
-				a.groupedChips(c, st, cur(st), func(tag string) { a.eng.Choose(singcfg.TagProxy, tag) })
+				chipsBelow(c, func() {
+					a.groupedChips(c, st, cur(st), func(tag string) { a.eng.Choose(singcfg.TagProxy, tag) })
+				})
 			}
 		})
-		exit, label := mainExitPlace(st)
-		ui.Column(c).Padding(10, 14, 10, 0).Justify(ui.Center).Children(func() {
-			a.laneMap(c, singcfg.TagProxy, a.k.accent, exit, label, mapLive)
+	})
+}
+
+// mainTop is the proxy lane's exit, with its map beside it.
+func (a *app) mainTop(c *ui.Context, st engine.State) {
+	ui.Column(c).Grow(1).Padding(14, 16).Gap(10).Children(func() {
+		ui.Text(c, "proxy").FontSize(fsHeading).FontWeight(600)
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			cur := st.Choices[singcfg.TagProxy]
+			ui.Text(c, "→").FontSize(fsBody).TextColor(a.k.text2)
+			name := "自动选最快"
+			if cur != "" {
+				name = shorten(cur, 34)
+			}
+			mono(ui.Text(c, name).FontSize(fsBody)).SingleLine().Tooltip(name)
+			a.delayPill(c, st, cur)
+			ui.Spacer(c)
+			label := "更换"
+			if a.expanded[singcfg.TagProxy] {
+				label = "收起"
+			}
+			if a.button(c, btnGhost, "", label).Clicked() {
+				a.expanded[singcfg.TagProxy] = !a.expanded[singcfg.TagProxy]
+			}
 		})
+	})
+	exit, label := mainExitPlace(st)
+	ui.Column(c).Padding(10, 14, 10, 0).Justify(ui.Center).Children(func() {
+		a.laneMap(c, singcfg.TagProxy, a.k.accent, exit, label, mapLive)
 	})
 }
 
@@ -434,13 +458,18 @@ func (a *app) testState(c *ui.Context, st engine.State, tag string) {
 		ui.Spinner(c).Size(13, 13).Label("正在测试")
 	case !ok:
 	case d < 0:
-		mono(ui.Text(c, "不通").FontSize(fsCaption).FontWeight(600).TextColor(a.k.danger)).SingleLine()
+		a.deadDot(c)
 	default:
 		mono(ui.Text(c, fmt.Sprintf("%d", d)).FontSize(fsCaption).FontWeight(600).TextColor(delayColor(a, d))).SingleLine()
 		if known && works {
 			icon(c, "check", 12, a.k.ok).Label("通")
 		} else if known {
-			icon(c, "x", 12, a.k.danger).Label("不通")
+			a.deadDot(c)
 		}
 	}
+}
+
+// deadDot is a node that does not work: a red dot at the chip's right end.
+func (a *app) deadDot(c *ui.Context) {
+	ui.Box(c).Size(8, 8).Radius(4).Shrink(0).Background(a.k.danger).Label("不通").Tooltip("不通")
 }

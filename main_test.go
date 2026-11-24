@@ -814,7 +814,13 @@ func TestClickingANodeChoosesAndTestsIt(t *testing.T) {
 	if len(st.Delays) != 0 || st.Choices["proxy"] != "" {
 		t.Fatal("something was chosen or tested before any click")
 	}
-	tt := view(a)
+	// A tall window: the chips are under the lane's map, and this one is in the second country.
+	tall := func() *ui.Tester {
+		tt := ui.NewTester(a.view, 1040, 1000)
+		tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 76})
+		return tt
+	}
+	tt := tall()
 	if err := tt.Click("日本-TY-1-流量倍率:1.2"); err != nil { // the chip's label is the full name
 		t.Fatal(err)
 	}
@@ -827,7 +833,7 @@ func TestClickingANodeChoosesAndTestsIt(t *testing.T) {
 		t.Errorf("%d nodes tested, want only the one clicked: %v", n, a.eng.State().Delays)
 	}
 	// The answer is on the chip: a number, or that it does not answer (these nodes are not real).
-	tt = view(a)
+	tt = tall()
 	answered := false
 	for _, txt := range tt.Texts() {
 		answered = answered || txt == "不通"
@@ -836,7 +842,7 @@ func TestClickingANodeChoosesAndTestsIt(t *testing.T) {
 		t.Errorf("the chip does not show the answer: %q", tt.Texts())
 	}
 	// Clicking another changes the choice and tests that one too; the first stays as it was.
-	if err := view(a).Click("日本-TY-2-流量倍率:1"); err != nil {
+	if err := tall().Click("日本-TY-2-流量倍率:1"); err != nil {
 		t.Fatal(err)
 	}
 	wait(t, "the second", func() bool { _, ok := a.eng.State().Delays["日本-TY-2-流量倍率:1"]; return ok })
