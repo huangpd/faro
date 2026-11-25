@@ -47,7 +47,10 @@ type app struct {
 	expanded  map[string]bool // lanes with their nodes shown
 	rulesEdit string
 	rulesErrs []rules.Error
-	rulesTab  int // 0 the person's sites in groups, 1 the order the rules are checked in, 2 the rules text
+	rulesTab  int // tabExits, tabDomains, tabOrder or tabText
+
+	exitOpen map[string]bool       // exit cards unfolded
+	exitEdit map[string]*exitDraft // exit cards with their settings open
 
 	orderFor string        // what the order was worked out for
 	order    []engine.Step // the rules in force, as the core checks them
@@ -90,7 +93,7 @@ type app struct {
 }
 
 func newApp(eng *engine.Engine) *app {
-	return &app{eng: eng, expanded: map[string]bool{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, rulesEdit: eng.State().RulesText}
+	return &app{eng: eng, expanded: map[string]bool{}, exitOpen: map[string]bool{}, exitEdit: map[string]*exitDraft{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, rulesEdit: eng.State().RulesText}
 }
 
 // refresh redraws the window, when there is one, and the menu-bar item. It

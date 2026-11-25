@@ -72,3 +72,27 @@ func sectionHeadings(text string) []string {
 	}
 	return out
 }
+
+// EditRoute changes the line of route id in the rules text and applies the
+// text, as ApplyRules does: what does not compile is refused, and said.
+func (e *Engine) EditRoute(id string, change func(*rules.RouteLine)) []rules.Error {
+	e.mu.Lock()
+	text := e.rulesText
+	e.mu.Unlock()
+	rl, ok := rules.ReadRoute(text, id)
+	if !ok {
+		return []rules.Error{{Msg: "route " + id + " is not in the rules"}}
+	}
+	change(&rl)
+	next, err := rules.SetRoute(text, rl)
+	if err != nil {
+		return []rules.Error{{Msg: err.Error()}}
+	}
+	if next == text {
+		return nil
+	}
+	return e.ApplyRules(next)
+}
+
+// CheckExits asks every checked route where it leaves from, now.
+func (e *Engine) CheckExits() { e.kickExits() }

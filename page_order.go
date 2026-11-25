@@ -12,7 +12,8 @@ import (
 
 // The tabs of the rules page.
 const (
-	tabDomains = iota
+	tabExits = iota
+	tabDomains
 	tabOrder
 	tabText
 )
@@ -35,12 +36,9 @@ func (a *app) orderPage(c *ui.Context, st engine.State) {
 	for _, s := range a.order {
 		n += len(s.Shadowed)
 	}
-	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "流量从上往下比对，第一条匹配的决定去向。这里只能看；要改，去「我的域名」或「规则文本」。").FontSize(fsMeta).TextColor(a.k.text2).Grow(1)
-		if n > 0 {
-			a.pill(c, fmt.Sprintf("%d 处被上面的规则挡住", n), a.k.warn)
-		}
-	})
+	if n > 0 {
+		ui.Row(c).Children(func() { a.pill(c, fmt.Sprintf("%d 处被上面的规则挡住", n), a.k.warn) })
+	}
 	hues := map[string]ui.Color{}
 	for i, r := range st.Plan.Routes {
 		hues[r.ID] = a.k.lanes[i%len(a.k.lanes)]

@@ -23,7 +23,7 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 		if a.button(c, btnSecondary, "sparkles", "复制给 AI 的提示词").Clicked() {
 			a.copyText(c, a.aiPrompt(st), "已复制")
 		}
-		ui.Segmented(c, &a.rulesTab, "我的域名", "最终顺序", "规则文本").Label("规则页")
+		ui.Segmented(c, &a.rulesTab, "出口", "我的域名", "最终顺序", "规则文本").Label("规则页")
 	})
 	a.errorBanner(c, st)
 	if st.Plan != nil {
@@ -36,6 +36,9 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 	}
 
 	switch a.rulesTab {
+	case tabExits:
+		a.exitsPage(c, st)
+		return
 	case tabDomains:
 		a.domainsPage(c, st)
 		return

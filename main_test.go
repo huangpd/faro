@@ -923,8 +923,9 @@ func TestPagesCarryNoExplanatorySentences(t *testing.T) {
 }
 
 // The sites the person keeps, in groups, on the rules page.
-func TestRulesPageStartsWithTheirSitesAndAnEmptyListOffersAGroup(t *testing.T) {
+func TestTheSitesTabOffersAGroupWhenThereIsNone(t *testing.T) {
 	a := newTestApp(t)
+	a.rulesTab = tabDomains // the rules page opens on the exits
 	tt := view(a, "规则")
 	need(t, tt, "我的域名", "规则文本", "还没有分组", "新建分组")
 	if tt.HasText("应用") {
@@ -938,6 +939,7 @@ func TestRulesPageStartsWithTheirSitesAndAnEmptyListOffersAGroup(t *testing.T) {
 
 func TestGroupsAreShownWithTheirPlaceAndSites(t *testing.T) {
 	a := newTestApp(t)
+	a.rulesTab = tabDomains // the rules page opens on the exits
 	withNodes(t, a, "🇬🇧 London 01", "🇩🇪 Frankfurt 01")
 	usePreset(t, a, "ai-accounts")
 	if err := a.eng.NewGroup("AI 应用", "claude", "claude.ai chatgpt.com"); err != nil {
@@ -952,6 +954,7 @@ func TestGroupsAreShownWithTheirPlaceAndSites(t *testing.T) {
 
 func TestMakingAGroupFromTheForm(t *testing.T) {
 	a := newTestApp(t)
+	a.rulesTab = tabDomains // the rules page opens on the exits
 	tt := view(a, "规则", "新建分组")
 	need(t, tt, "创建", "取消")
 	a.newGroup.name, a.newGroup.target = "直连的站", "direct"
@@ -998,7 +1001,7 @@ func TestAConnectionsSiteCanBeAddedToAGroup(t *testing.T) {
 	if err := ui.NewTester(func(c *ui.Context) { b.addFromConn(c, b.eng.State(), "www.example.org") }, 700, 80).Click("新建分组"); err != nil {
 		t.Fatal(err)
 	}
-	if !b.newGroup.open || b.newGroup.sites != "example.org" || b.page != pageRules || b.rulesTab != 0 {
+	if !b.newGroup.open || b.newGroup.sites != "example.org" || b.page != pageRules || b.rulesTab != tabDomains {
 		t.Errorf("draft %+v page %v tab %d", b.newGroup, b.page, b.rulesTab)
 	}
 }
@@ -1148,6 +1151,7 @@ func TestRulesEditorKeepsTheTextAndMarksMistakes(t *testing.T) {
 
 func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
 	a := newTestApp(t)
+	a.rulesTab = tabDomains // the rules page opens on the exits
 	if err := a.eng.NewGroup("AI", "direct", "example.com"); err != nil {
 		t.Fatal(err)
 	}
@@ -1190,6 +1194,7 @@ func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
 
 func TestOverlapsAreShownOnBothGroupsAndASiteSaysWhichSetsHoldIt(t *testing.T) {
 	a := newTestApp(t)
+	a.rulesTab = tabDomains // the rules page opens on the exits
 	a.eng.NewGroup("先", "direct", "")
 	a.eng.NewGroup("后", "proxy", "ai.google.dev")
 	if err := a.eng.AddSet("先", "geosite-google-gemini"); err != nil {
@@ -1221,6 +1226,7 @@ func TestOverlapsAreShownOnBothGroupsAndASiteSaysWhichSetsHoldIt(t *testing.T) {
 
 func TestChangingAGroupsPlaceAsksFirstWhenItHoldsSomething(t *testing.T) {
 	a := newTestApp(t)
+	a.rulesTab = tabDomains // the rules page opens on the exits
 	a.eng.NewGroup("国内", "direct", "a.com")
 	if err := a.eng.AddSet("国内", "geosite-google-gemini"); err != nil {
 		t.Fatal(err)
@@ -1488,5 +1494,45 @@ func TestOrderShowsTheRulesAndWhatIsOutOfReach(t *testing.T) {
 		if s.Target == "claude" && len(s.Shadowed) > 0 {
 			t.Errorf("claude's step reported out of reach: %+v", s.Shadowed)
 		}
+	}
+}
+
+// The exits tab: a card for each exit, folded to a line, opened by a click; its
+// settings saved to its line in the rules text.
+func TestExitCardsFoldAndTheirSettingsAreWrittenToTheRoute(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧英国-UK-1-流量倍率:0.9", "🇩🇪德国-DE-2-流量倍率:1")
+	if errs := a.eng.ApplyRules("route work region UK gate exit:198.51.100.0/24 # the office\nroute de region DE\nwork domain:work.example\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	a.setPage(pageRules)
+	a.rulesTab = tabExits
+	tt := view(a)
+	need(t, tt, "work", "de", "proxy", "直连", "出口须在 198.51.100.0/24", "没有流量")
+	if tt.HasText("work.example") {
+		t.Error("a folded card shows what goes through it")
+	}
+	tt = view(a, "work")
+	need(t, tt, "work.example", "出口设置")
+	tt = view(a, "出口设置")
+	need(t, tt, "核对间隔", "核对时段", "保存")
+	d := a.exitEdit["work"]
+	d.every, d.span, d.from, d.to = "每 5 分钟", someDay, "09:00", "23:30"
+	d.rl.IPv4 = true
+	view(a, "保存")
+	want := "route work region UK gate ipv4 exit:198.51.100.0/24 check:5m hours:09:00-23:30 # the office\n"
+	if got := a.eng.State().RulesText; !strings.HasPrefix(got, want) {
+		t.Errorf("rules text:\n%s\nwant it to start:\n%s", got, want)
+	}
+	if a.exitEdit["work"] != nil {
+		t.Error("the settings stay open after saving")
+	}
+	// What does not compile is refused, and said; the text is left as it was.
+	before := a.eng.State().RulesText
+	view(a, "出口设置")
+	a.exitEdit["work"].rl.Exit = []string{"not-a-range"}
+	tt = view(a, "保存")
+	if a.eng.State().RulesText != before || !tt.HasText("not-a-range") {
+		t.Errorf("a bad range was saved, or not said: %q", tt.Texts())
 	}
 }
