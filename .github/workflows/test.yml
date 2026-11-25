@@ -24,5 +24,11 @@ jobs:
         run: |
           ./scripts/fetch-singbox.sh
           ./scripts/fetch-rulesets.sh
-      - name: Test
-        run: go test ./... -count=1
+      - name: Vet
+        run: |
+          go vet ./...
+          go tool mygo vet .
+      - name: Test, with the race detector
+        # The engine's start, stop and proxy switching run on goroutines of
+        # their own; the race detector is what keeps them honest.
+        run: go test ./... -count=1 -race
