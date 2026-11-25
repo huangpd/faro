@@ -94,7 +94,7 @@ func Prompt(c Context) string {
 		b.WriteString(strings.TrimRight(c.Rules, "\n"))
 		b.WriteString("\n```\n")
 	}
-	b.WriteString("\n=== 我的需求 ===\n（在这里写你想要什么，用自然语言就行。例如：让某个网站走 claude 出口；把某个程序的流量直接放行；）\n")
+	b.WriteString("\n=== 我的需求 ===\n（在这里写你想要什么，用自然语言就行。例如：让某个网站走英国的出口；把某个程序的流量直接放行；）\n")
 	return b.String()
 }
 

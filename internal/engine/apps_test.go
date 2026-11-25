@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"faro/internal/applib"
+	"faro/internal/rules"
 )
 
 func TestApplicationsAreAddedToAnExit(t *testing.T) {
@@ -69,5 +70,52 @@ func TestApplicationsAreAddedToAnExit(t *testing.T) {
 		if err := e.AddCustomApp("uk", "坏的", bad); err == nil {
 			t.Errorf("accepted %q", bad)
 		}
+	}
+}
+
+// A route renamed in the text takes its applications, its node and its shut
+// gate with it; an application whose exit is gone is blocked, never left out.
+func TestARenamedRouteKeepsItsApplicationsAndAMissingOneBlocks(t *testing.T) {
+	e := newEngineWith(t, (&fakeNetworksetup{}).run, nil)
+	e.addAndWait(t, subFile(t, "🇬🇧 London 01", "🇬🇧 London 02"), 2)
+	if errs := e.ApplyRules("route claude region UK gate\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	if err := e.AddCustomApp("claude", "Claude", "claude.example process:Claude"); err != nil {
+		t.Fatal(err)
+	}
+	e.Choose("claude", "🇬🇧 London 02")
+	e.SetGate("claude", true)
+	if errs := e.ApplyRules("route anthropic region UK gate\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	st := e.State()
+	if g := st.Groups[0]; g.Target != "anthropic" || st.GroupErrors["Claude"] != "" {
+		t.Errorf("the application did not follow: %+v %v", g, st.GroupErrors)
+	}
+	r := st.Plan.Routes[0]
+	if r.ID != "anthropic" || r.Chosen != "🇬🇧 London 02" || !r.Closed {
+		t.Errorf("the route's node or gate did not follow: %+v", r)
+	}
+	// Taken out with another route added too: not a rename. The application's
+	// traffic is blocked, and it says why.
+	if errs := e.ApplyRules("route uk region UK\nroute other region UK\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	st = e.State()
+	if !strings.Contains(st.GroupErrors["Claude"], "anthropic") {
+		t.Errorf("not said: %v", st.GroupErrors)
+	}
+	for _, r := range st.Plan.Rules {
+		for _, m := range r.Matchers {
+			for _, v := range m.Values {
+				if (v == "claude.example" || v == "Claude") && r.Target != rules.TargetBlock {
+					t.Errorf("%s goes to %s, not blocked", v, r.Target)
+				}
+			}
+		}
+	}
+	if st.Groups[0].Target != "anthropic" {
+		t.Error("the application's own exit was changed to block: it is only blocked while it is gone")
 	}
 }

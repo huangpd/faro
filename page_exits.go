@@ -77,6 +77,11 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		a.orderFor, a.order = key, a.eng.Order()
 	}
 	a.groups = st.Groups
+	for _, g := range st.Groups {
+		if msg := st.GroupErrors[g.Name]; msg != "" {
+			a.banner(c, a.k.danger, "shield-alert", g.Name+"："+msg)
+		}
+	}
 	if st.Plan == nil {
 		a.empty(c, "list-checks", "规则没有生效", "先在「规则文本」里改正错误", nil)
 		return

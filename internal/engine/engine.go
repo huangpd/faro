@@ -751,9 +751,17 @@ func (e *Engine) ApplyRules(text string) []rules.Error {
 	for i, n := range e.nodes {
 		tags[i] = n.Tag
 	}
-	if _, errs, _ := compileWithGroups(e.groupsList, text, tags, e.choices); errs != nil {
+	next, errs, _ := compileWithGroups(e.groupsList, text, tags, e.choices)
+	if errs != nil {
 		e.mu.Unlock()
 		return errs
+	}
+	// One route gone and one new: it was renamed, and what was its goes with it.
+	if from, to, ok := renamed(e.plan, next); ok {
+		if err := e.renameRouteLocked(from, to); err != nil {
+			e.mu.Unlock()
+			return []rules.Error{{Msg: err.Error()}}
+		}
 	}
 	if err := os.WriteFile(filepath.Join(e.core.Dir(), "rules.txt"), []byte(text), 0o600); err != nil {
 		e.err = err.Error()
@@ -768,6 +776,66 @@ func (e *Engine) ApplyRules(text string) []rules.Error {
 	e.changed()
 	if running {
 		e.Restart()
+	}
+	return nil
+}
+
+// renamed says whether, from plan a to plan b, one route went and one came:
+// a route renamed in the text.
+func renamed(a, b *rules.Plan) (from, to string, ok bool) {
+	if a == nil || b == nil {
+		return "", "", false
+	}
+	was, is := map[string]bool{}, map[string]bool{}
+	for _, r := range a.Routes {
+		was[r.ID] = true
+	}
+	for _, r := range b.Routes {
+		is[r.ID] = true
+	}
+	var gone, came []string
+	for id := range was {
+		if !is[id] {
+			gone = append(gone, id)
+		}
+	}
+	for id := range is {
+		if !was[id] {
+			came = append(came, id)
+		}
+	}
+	if len(gone) != 1 || len(came) != 1 {
+		return "", "", false
+	}
+	return gone[0], came[0], true
+}
+
+// renameRouteLocked moves to the new name what is kept under a route's name:
+// the applications on it, the node chosen for it, and whether its gate is
+// shut, so that a shut gate stays shut. The caller holds e.mu.
+func (e *Engine) renameRouteLocked(from, to string) error {
+	gs := domains.Copy(e.groupsList)
+	moved := false
+	for i := range gs {
+		if gs[i].Target == from {
+			gs[i].Target, moved = to, true
+		}
+	}
+	if moved {
+		if err := domains.Save(filepath.Join(e.core.Dir(), "domains.json"), gs); err != nil {
+			return err
+		}
+		e.groupsList = gs
+	}
+	for _, suffix := range []string{"", rules.GateSuffix} {
+		if v := e.choices[from+suffix]; v != "" {
+			if err := e.store.SetChoice(to+suffix, v); err != nil {
+				return err
+			}
+			if err := e.store.SetChoice(from+suffix, ""); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -1351,9 +1419,28 @@ func scrub(doc map[string]any) {
 // front of it. A group that cannot be in force (its target is a route that is
 // gone) is left out, and says why in the third result, by its name: one group's
 // trouble does not stop the rest, or the rules text.
+//
+// A group whose exit is not in the text (renamed, or taken out) is not left
+// out: what it holds is BLOCKED, as a route with no node is. Left out, its
+// traffic would fall through to the rules below it and leave by another exit.
 func compileWithGroups(groups []domains.Group, text string, tags []string, choices map[string]string) (*rules.Plan, []rules.Error, map[string]string) {
 	var bad map[string]string
-	active := groups
+	active := domains.Copy(groups)
+	if p, _ := rules.Compile(text, tags, choices); p != nil {
+		ids := map[string]bool{}
+		for _, r := range p.Routes {
+			ids[r.ID] = true
+		}
+		for i, g := range active {
+			if !plainTargets[g.Target] && !ids[g.Target] {
+				if bad == nil {
+					bad = map[string]string{}
+				}
+				bad[g.Name] = fmt.Sprintf("出口 %s 不存在，它的流量被阻断，直到改到一个存在的出口", g.Target)
+				active[i].Target = rules.TargetBlock
+			}
+		}
+	}
 	for {
 		head, owners := domains.Head(active)
 		plan, errs := rules.CompileWith(head, text, tags, choices)

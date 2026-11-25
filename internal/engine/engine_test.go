@@ -831,7 +831,7 @@ func TestGroupsOfSites(t *testing.T) {
 
 // A group whose route is gone from the rules is out of force and says why;
 // everything else goes on.
-func TestAGroupWithAMissingRouteIsLeftOutAndSaysWhy(t *testing.T) {
+func TestAGroupWithAMissingRouteIsBlockedAndSaysWhy(t *testing.T) {
 	e := newEngine(t, (&fakeNetworksetup{}).run)
 	e.addAndWait(t, subFile(t, "🇬🇧 London 01", "🇩🇪 Frankfurt 01"), 2)
 	e.ApplyRules(fixtures.AIAccounts())
@@ -844,8 +844,10 @@ func TestAGroupWithAMissingRouteIsLeftOutAndSaysWhy(t *testing.T) {
 	if st.GroupErrors["AI"] == "" || st.GroupErrors["直连"] != "" {
 		t.Errorf("group errors %v", st.GroupErrors)
 	}
-	if st.Plan == nil || st.Plan.Rules[0].Target != "direct" {
-		t.Error("the other group was left out too")
+	// Its sites are blocked, not left to the rules below; the other group is as it was.
+	if st.Plan == nil || st.Plan.Rules[0].Target != rules.TargetBlock || st.Plan.Rules[0].Matchers[0].Values[0] != "claude.ai" ||
+		st.Plan.Rules[1].Target != "direct" {
+		t.Errorf("rules %+v", st.Plan.Rules[:2])
 	}
 	// The route comes back, and the group is in force again.
 	e.ApplyRules(fixtures.AIAccounts())
