@@ -1094,9 +1094,13 @@ func (e *Engine) Restart() {
 	e.mu.Unlock()
 	e.changed()
 	go func() {
-		e.fail(e.proxy.Disable()) // the new core has another port
+		// The new core has another port: the proxy is put back first. Only by the
+		// newest restart: an older one, late, must not touch what a newer one set
+		// up. The old core is replaced when the new one starts (run).
 		e.life.Lock()
-		e.core.Stop()
+		if e.current(g) {
+			e.fail(e.proxy.Disable())
+		}
 		e.life.Unlock()
 		e.run(g)
 	}()
@@ -1113,9 +1117,13 @@ func (e *Engine) Stop() {
 	}
 	e.mu.Unlock()
 	go func() {
-		e.fail(e.proxy.Disable()) // before the core goes: no dead proxy
+		// The proxy goes before the core: no dead proxy. Only if this stop is
+		// still the last word: a start after it has a core of its own.
 		e.life.Lock()
-		e.core.Stop()
+		if e.current(g) {
+			e.fail(e.proxy.Disable())
+			e.core.Stop()
+		}
 		e.life.Unlock()
 		e.mu.Lock()
 		if e.gen == g {

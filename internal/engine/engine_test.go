@@ -95,9 +95,11 @@ type fakeNetworksetup struct {
 	mu    sync.Mutex
 	state map[string]string // "-setwebproxy" etc. -> last "host port"
 	calls []string
+	delay time.Duration // each call takes this long: a slow Mac
 }
 
 func (f *fakeNetworksetup) run(args ...string) (string, error) {
+	time.Sleep(f.delay)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, strings.Join(args, " "))
@@ -364,7 +366,13 @@ func TestRapidRestartsLeaveOneCoreAndTheLastWord(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		e.Restart()
 	}
-	waitFor(t, "running", func() bool { return e.State().Status == Running })
+	waitFor(t, "running", func() bool {
+		st := e.State()
+		if st.Status == Stopped {
+			t.Fatalf("stopped after restarts: %q, %d cores", st.Err, coresOf(e))
+		}
+		return st.Status == Running
+	})
 	time.Sleep(1500 * time.Millisecond)
 	if st := e.State(); st.Status != Running || st.Err != "" {
 		t.Errorf("after restarts: %s (%s)", st.Status, st.Err)
@@ -375,6 +383,32 @@ func TestRapidRestartsLeaveOneCoreAndTheLastWord(t *testing.T) {
 }
 
 // coresOf counts the running cores that use this engine's data directory.
+// On a slow Mac, where putting the system proxy back takes a while, an older
+// restart must not stop the core a newer one has started.
+func TestRestartsOnASlowMacLeaveTheNewestCoreRunning(t *testing.T) {
+	e := newEngine(t, (&fakeNetworksetup{delay: 300 * time.Millisecond}).run)
+	e.SetSystemProxy(true) // so that putting it back is work, and slow
+	e.Start()
+	for i := 0; i < 3; i++ {
+		e.Restart()
+	}
+	waitFor(t, "running", func() bool { return e.State().Status == Running })
+	time.Sleep(2500 * time.Millisecond) // every older restart has had its turn
+	if st := e.State(); st.Status != Running || st.Err != "" {
+		t.Errorf("after restarts: %s (%s)", st.Status, st.Err)
+	}
+	if n := coresOf(e); n != 1 {
+		t.Errorf("%d cores running, want 1", n)
+	}
+	// And a stop that comes after, however slow, ends it.
+	e.Stop()
+	waitFor(t, "stopped", func() bool { return e.State().Status == Stopped })
+	time.Sleep(1500 * time.Millisecond)
+	if n := coresOf(e); n != 0 {
+		t.Errorf("%d cores left after the stop", n)
+	}
+}
+
 func coresOf(e *Engine) int {
 	out, _ := exec.Command("pgrep", "-f", "sing-box run -c "+e.State().DataDir).Output()
 	return len(strings.Fields(string(out)))
