@@ -192,6 +192,23 @@ func (s *Store) Refresh(ctx context.Context, id string) error {
 	return s.save()
 }
 
+// Replace puts these subscriptions and choices in place of all that is kept,
+// as an import does, and saves them. Each subscription is copied.
+func (s *Store) Replace(subs []Subscription, choices map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Subs = make([]*Subscription, len(subs))
+	for i := range subs {
+		x := subs[i]
+		s.Subs[i] = &x
+	}
+	s.Choices = make(map[string]string, len(choices))
+	for k, v := range choices {
+		s.Choices[k] = v
+	}
+	return s.save()
+}
+
 func (s *Store) Remove(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

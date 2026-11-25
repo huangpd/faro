@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1679,4 +1680,112 @@ func TestTheLibrarySaysThereIsMoreAndASearchFindsIt(t *testing.T) {
 	}
 	a.appQuery = "whats"
 	need(t, view(a), "WhatsApp", "把 WhatsApp 加到 uk")
+}
+
+// tall renders the app in a window tall enough for the whole settings page,
+// after clicking the given texts, each of which must be there.
+func tall(t *testing.T, a *app, clicks ...string) *ui.Tester {
+	t.Helper()
+	tt := ui.NewTester(a.view, 1040, 1400)
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 76})
+	for _, c := range clicks {
+		if err := tt.Click(c); err != nil {
+			t.Fatalf("click %q: %v", c, err)
+		}
+	}
+	return tt
+}
+
+// testConfigIO answers the file dialogs with these paths at once. What comes
+// back to the interface waits in a queue that the test runs, as the main
+// thread would: the interface's state is only ever touched by the test.
+type testConfigQueue struct {
+	mu sync.Mutex
+	q  []func()
+}
+
+func (q *testConfigQueue) post(f func()) { q.mu.Lock(); q.q = append(q.q, f); q.mu.Unlock() }
+
+// settle waits for an answer to come back, and runs it.
+func (q *testConfigQueue) settle(t *testing.T) {
+	t.Helper()
+	var fs []func()
+	wait(t, "the answer", func() bool {
+		q.mu.Lock()
+		fs, q.q = q.q, nil
+		q.mu.Unlock()
+		return len(fs) > 0
+	})
+	for _, f := range fs {
+		f()
+	}
+}
+
+func testConfigIO(save, open string) (configIO, *testConfigQueue) {
+	q := &testConfigQueue{}
+	return configIO{
+		save: func(string) (string, error) { return save, nil },
+		open: func() (string, error) { return open, nil },
+		post: q.post,
+	}, q
+}
+
+// The whole configuration goes to a file, asked about first as it holds the
+// passwords, and comes back from it, asked about first as it replaces all.
+func TestTheConfigurationIsExportedAndImported(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01", "🇩🇪 Frankfurt 01")
+	usePreset(t, a, "ai-accounts")
+	file := filepath.Join(t.TempDir(), "faro.json")
+	io, q := testConfigIO(file, file)
+	a.cfgIO = io
+	view(a, "设置")
+	defer a.setPage(pageNow)
+
+	tt := tall(t, a, "导出…")
+	need(t, tt, "导出配置？", "节点密码")
+	tall(t, a, "导出")
+	q.settle(t)
+	if a.cfg.err != "" {
+		t.Fatal(a.cfg.err)
+	}
+	if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("file: %v %v", err, fi)
+	}
+	need(t, tall(t, a), "已导出到 "+file)
+
+	// Changed since, then the file brought back.
+	want := a.eng.State().RulesText
+	if errs := a.eng.ApplyRules("route uk region UK\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	a.rulesEdit = a.eng.State().RulesText
+	tall(t, a, "导入…")
+	q.settle(t)
+	tt = tall(t, a)
+	need(t, tt, "导入并替换当前配置？", "1 个订阅、2 个节点", "先备份")
+	if a.eng.State().RulesText == want {
+		t.Fatal("replaced before it was answered")
+	}
+	tall(t, a, "导入")
+	if st := a.eng.State(); st.RulesText != want || len(st.Nodes) != 2 {
+		t.Errorf("not imported: %q", st.RulesText)
+	}
+	if a.rulesEdit != want {
+		t.Error("the rules page still shows the old text")
+	}
+	need(t, tall(t, a), "已导入：1 个订阅、2 个节点", "导入前-")
+
+	// A file that is not one is said, and nothing is asked.
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	os.WriteFile(bad, []byte("{}"), 0o600)
+	io, q = testConfigIO(file, bad)
+	a.cfgIO = io
+	tall(t, a, "导入…")
+	q.settle(t)
+	tt = tall(t, a)
+	need(t, tt, "不能导入：不是 Faro 导出的配置文件")
+	if a.cfg.importAsk {
+		t.Error("asked about a file that is not one")
+	}
 }

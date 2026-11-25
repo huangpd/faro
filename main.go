@@ -101,13 +101,16 @@ type app struct {
 	connSel   string // the connection whose "why" is shown
 	connList  ui.ListState
 
+	cfg   configState // the configuration's export and import
+	cfgIO configIO
+
 	logLevel int // 0 all, 1 info and up, 2 warnings and up, 3 errors
 	logQuery string
 	logList  ui.ListState
 }
 
 func newApp(eng *engine.Engine) *app {
-	return &app{eng: eng, expanded: map[string]bool{}, exitOpen: map[string]bool{}, exitEdit: map[string]*exitDraft{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, rulesEdit: eng.State().RulesText}
+	return &app{eng: eng, expanded: map[string]bool{}, exitOpen: map[string]bool{}, exitEdit: map[string]*exitDraft{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, rulesEdit: eng.State().RulesText, cfgIO: nativeConfigIO()}
 }
 
 // coalesce makes a notifier that asks post to run fn later, once for any

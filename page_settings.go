@@ -61,6 +61,7 @@ func (a *app) settingsPage(c *ui.Context, st engine.State) {
 				}
 			}, stale)
 		})
+		a.configSettings(c)
 		a.group(c, "核心", func() {
 			v := "未运行"
 			if st.Version != "" {
