@@ -111,6 +111,10 @@ const perLine = 8
 func Head(groups []Group) (text string, owners []int) {
 	var b strings.Builder
 	for gi, g := range groups {
+		if b.Len() > 0 && len(g.Domains)+len(g.Sets)+len(g.Rules) > 0 { // a blank line between groups: their rules are never merged
+			b.WriteString("\n")
+			owners = append(owners, gi)
+		}
 		for i := 0; i < len(g.Domains); i += perLine {
 			end := i + perLine
 			if end > len(g.Domains) {
@@ -154,6 +158,10 @@ func Head(groups []Group) (text string, owners []int) {
 				owners = append(owners, gi)
 			}
 		}
+	}
+	if b.Len() > 0 { // and after them: the text's first rule is not merged with a group's
+		b.WriteString("\n")
+		owners = append(owners, len(groups)-1)
 	}
 	return b.String(), owners
 }

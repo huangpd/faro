@@ -415,8 +415,8 @@ func TestRegionOfRealNames(t *testing.T) {
 		"新加坡-SG-3-1-流量倍率:1": "SG", "澳大利亚-AU-1-流量倍率:1.6": "AU", "中国台湾-TW-1-流量倍率:1.1": "TW", "荷兰-V6-NL1-流量倍率:0.5": "NL",
 		"爱沙尼亚-EE-1-流量倍率:0.2": "EE", "🇯🇵 Tokyo 01": "JP",
 		"有效期2099-01-01, 剩余 100.00 GB": "", // a notice is in no country
-		"Node-17":                    "", // says none
-		"Ukraine 01":                 "", // not the UK
+		"Node-17":                     "", // says none
+		"Ukraine 01":                  "", // not the UK
 	} {
 		if got := RegionOf(name); got != want {
 			t.Errorf("RegionOf(%q) = %q, want %q", name, got, want)

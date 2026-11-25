@@ -61,12 +61,13 @@ func TestHeadMakesRulesInOrderAndSaysWhoseLineIsWhose(t *testing.T) {
 		{Name: "empty", Target: "proxy"},
 		{Name: "two", Target: "claude", Domains: many},
 	})
+	// A blank line between groups and after them: their rules are never merged.
 	lines := strings.Split(strings.TrimRight(head, "\n"), "\n")
-	if len(lines) != 3 || lines[0] != "direct domain:a.com domain:b.com" ||
-		!strings.HasPrefix(lines[1], "claude domain:da.com") || !strings.HasPrefix(lines[2], "claude domain:di.com") {
+	if len(lines) != 4 || lines[0] != "direct domain:a.com domain:b.com" || lines[1] != "" ||
+		!strings.HasPrefix(lines[2], "claude domain:da.com") || !strings.HasPrefix(lines[3], "claude domain:di.com") || !strings.HasSuffix(head, "\n\n") {
 		t.Fatalf("head %q", head)
 	}
-	if !reflect.DeepEqual(owners, []int{0, 2, 2}) {
+	if !reflect.DeepEqual(owners, []int{0, 2, 2, 2, 2}) {
 		t.Errorf("owners %v", owners)
 	}
 	if h, o := Head(nil); h != "" || o != nil {
@@ -99,8 +100,8 @@ func TestHeadWritesSetsAfterTheSitesOfTheirGroup(t *testing.T) {
 		{Name: "g", Target: "claude", Domains: []string{"a.com"}, Sets: []string{"geosite-x", "geosite-y@cn"}},
 		{Name: "h", Target: "direct", Sets: []string{"geosite-z"}},
 	})
-	want := "claude domain:a.com\nclaude set:geosite-x set:geosite-y@cn\ndirect set:geosite-z\n"
-	if head != want || !reflect.DeepEqual(owners, []int{0, 0, 1}) {
+	want := "claude domain:a.com\nclaude set:geosite-x set:geosite-y@cn\n\ndirect set:geosite-z\n\n"
+	if head != want || !reflect.DeepEqual(owners, []int{0, 0, 1, 1, 1}) {
 		t.Errorf("head %q owners %v", head, owners)
 	}
 	c := Copy([]Group{{Name: "g", Sets: []string{"geosite-x"}}})
@@ -114,8 +115,8 @@ func TestHeadWritesSetsAfterTheSitesOfTheirGroup(t *testing.T) {
 func TestAGroupsOtherRulesAreLinesOfOneKind(t *testing.T) {
 	head, owners := Head([]Group{{Name: "a", Target: "uk", Domains: []string{"a.example"},
 		Rules: []string{"process:App", "full:api.example", "process:App Helper (GPU)", "cidr:203.0.113.0/24"}}})
-	want := "uk domain:a.example\nuk process:App process:\"App Helper (GPU)\"\nuk full:api.example\nuk cidr:203.0.113.0/24\n"
-	if head != want || len(owners) != 4 {
+	want := "uk domain:a.example\nuk process:App process:\"App Helper (GPU)\"\nuk full:api.example\nuk cidr:203.0.113.0/24\n\n"
+	if head != want || len(owners) != 5 {
 		t.Errorf("got\n%s%v", head, owners)
 	}
 	c := Copy([]Group{{Name: "a", Rules: []string{"process:x"}, App: "lib"}})

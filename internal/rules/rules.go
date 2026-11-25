@@ -217,16 +217,23 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 	var errs []Error
 	routes := map[string]*Route{}
 	var order []string
+	// A paragraph is lines with no blank line between them. Rules of different
+	// paragraphs are never merged into one, so that each keeps whose it is:
+	// a group, or a section of the text.
 	type pending struct {
-		line int
-		rule Rule
+		line, para int
+		rule       Rule
 	}
 	var lines []pending
+	para := 0
 
 	for i, raw := range strings.Split(text, "\n") {
 		n := i + 1
 		f := fields(stripComment(raw))
 		if len(f) == 0 {
+			if strings.TrimSpace(raw) == "" {
+				para++
+			}
 			continue
 		}
 		if handled, err := d.apply(f); handled {
@@ -251,7 +258,7 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 			errs = append(errs, Error{n, err})
 			continue
 		}
-		lines = append(lines, pending{n, rule})
+		lines = append(lines, pending{n, para, rule})
 	}
 
 	// The routes, with their nodes.
@@ -277,6 +284,7 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 	}
 
 	// The rules; neighbours that differ only in one matcher's values share a rule.
+	lastPara := -1
 	for _, l := range lines {
 		rule := l.rule
 		switch rule.Target {
@@ -294,7 +302,9 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 				rule.Target = r.Group()
 			}
 		}
-		if n := len(p.Rules); n > 0 && mergeable(p.Rules[n-1], rule) {
+		samePara := l.para == lastPara
+		lastPara = l.para
+		if n := len(p.Rules); n > 0 && samePara && mergeable(p.Rules[n-1], rule) {
 			p.Rules[n-1].Matchers[0].Values = append(p.Rules[n-1].Matchers[0].Values, rule.Matchers[0].Values...)
 			continue
 		}

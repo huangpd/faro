@@ -119,3 +119,29 @@ func TestARenamedRouteKeepsItsApplicationsAndAMissingOneBlocks(t *testing.T) {
 		t.Error("the application's own exit was changed to block: it is only blocked while it is gone")
 	}
 }
+
+// Two applications on one exit, each a program: their rules are not merged into
+// one, so each is named in the order and on its card.
+func TestApplicationsOnOneExitKeepTheirOwnRules(t *testing.T) {
+	e := newEngineWith(t, (&fakeNetworksetup{}).run, nil)
+	e.addAndWait(t, subFile(t, "🇬🇧 London 01"), 1)
+	if errs := e.ApplyRules("route uk region UK\nuk process:fromtext\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	for _, x := range [][2]string{{"甲", "process:a"}, {"乙", "process:b"}} {
+		if err := e.AddCustomApp("uk", x[0], x[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	whose := map[string]string{}
+	for _, s := range e.Order() {
+		for _, m := range s.Matchers {
+			for _, v := range m.Values {
+				whose[v] = s.Group + "|" + s.Label
+			}
+		}
+	}
+	if whose["a"] != "甲|分组 · 甲" || whose["b"] != "乙|分组 · 乙" || whose["fromtext"] != "|" {
+		t.Errorf("whose %v", whose)
+	}
+}
