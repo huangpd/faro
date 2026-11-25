@@ -625,7 +625,8 @@ func (a *app) addAppPanel(c *ui.Context, st engine.State, exit string) {
 		if len(found) == 0 {
 			ui.Text(c, "规则库里没有，可以在下面自己写").FontSize(fsMeta).TextColor(a.k.text2)
 		}
-		for _, lib := range found[:min(len(found), 8)] {
+		shown := found[:min(len(found), 8)]
+		for _, lib := range shown {
 			ui.Row(c).Height(32).Gap(10).AlignItems(ui.Center).Children(func() {
 				ui.Box(c).Size(24, 24).Radius(7).Background(a.k.surface).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
 					icon(c, lib.Icon, 13, a.k.text)
@@ -639,6 +640,9 @@ func (a *app) addAppPanel(c *ui.Context, st engine.State, exit string) {
 					a.appErr = errText(a.eng.AddApp(exit, lib.ID))
 				}
 			})
+		}
+		if more := len(found) - len(shown); more > 0 {
+			ui.Text(c, fmt.Sprintf("还有 %d 个，输入名字搜索", more)).FontSize(fsCaption).TextColor(a.k.text2)
 		}
 		ui.Divider(c)
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {

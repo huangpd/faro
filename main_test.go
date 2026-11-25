@@ -1657,3 +1657,21 @@ func TestAnExitIsMadeAndDeletedOnThePage(t *testing.T) {
 		t.Error("not deleted")
 	}
 }
+
+// The library shows a few at first and says how many more a search finds;
+// a search finds one far down the list.
+func TestTheLibrarySaysThereIsMoreAndASearchFindsIt(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01")
+	if errs := a.eng.ApplyRules("route uk region UK\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	a.setPage(pageRules)
+	a.exitOpen["uk"] = true
+	tt := view(a, "添加应用")
+	if !tt.HasText("还有 ") || tt.HasText("WhatsApp") {
+		t.Errorf("the rest is not said, or all are shown: %q", tt.Texts())
+	}
+	a.appQuery = "whats"
+	need(t, view(a), "WhatsApp", "把 WhatsApp 加到 uk")
+}
