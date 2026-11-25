@@ -9,7 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// the user's real subscription shape, in the order the provider lists it
+// a real subscription's shape, in the order a provider lists it (the notice is made up)
 var realNames = []string{
 	"有效期2099-01-01, 剩余 100.00 GB", "荷兰-NL-4-流量倍率:0.1", "爱沙尼亚-EE-1-流量倍率:0.2", "中国香港-HK-1-流量倍率:0.7", "中国香港-HK-2-流量倍率:0.7",
 	"中国香港-IPLC-HK-3-流量倍率:1", "中国香港-IPLC-HK-4-流量倍率:1", "荷兰-NL-1-流量倍率:0.5", "荷兰-NL-2-HY2-流量倍率:0.5",
