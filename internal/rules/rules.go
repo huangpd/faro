@@ -396,8 +396,11 @@ func parseRule(f []string, line int) (Rule, string) {
 				return r, fmt.Sprintf("bad port %q", val)
 			}
 		case "cidr":
-			if !strings.Contains(val, "/") && !strings.Contains(val, ".") && !strings.Contains(val, ":") {
-				return r, fmt.Sprintf("bad address range %q", val)
+			// A range, or one address; caught here, with its line, not when the core starts.
+			if _, err := netip.ParsePrefix(val); err != nil {
+				if _, err := netip.ParseAddr(val); err != nil {
+					return r, fmt.Sprintf("bad address range %q", val)
+				}
 			}
 		case "set":
 			if strings.HasPrefix(val, "geoip-") {

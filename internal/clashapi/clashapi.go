@@ -72,7 +72,8 @@ func (c *Client) StreamTraffic(ctx context.Context, fn func(Traffic)) error {
 	if err != nil {
 		return err
 	}
-	// The stream never ends on its own: no overall timeout.
+	// The stream never ends on its own: no overall timeout. A Client with no
+	// Transport uses http.DefaultTransport: one pool for all of these, not one each.
 	resp, err := (&http.Client{}).Do(r)
 	if err != nil {
 		return err

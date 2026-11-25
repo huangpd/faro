@@ -157,10 +157,12 @@ func TestNewState(t *testing.T) {
 }
 
 func TestSubscriptionFromFileAndNodes(t *testing.T) {
-	e := newEngine(t, (&fakeNetworksetup{}).run)
 	var notified int
 	var mu sync.Mutex
-	e.opts.Notify = func() { mu.Lock(); notified++; mu.Unlock() }
+	// Given when made: the engine's own goroutines read it from the start.
+	e := newEngineWith(t, (&fakeNetworksetup{}).run, func(o *Options) {
+		o.Notify = func() { mu.Lock(); notified++; mu.Unlock() }
+	})
 	e.addAndWait(t, subFile(t, "UK 01", "DE 01", "剩余流量：1 GB"), 3)
 	st := e.State()
 	if len(st.Subs) != 1 || st.Nodes[0].Tag != "UK 01" || st.Nodes[0].Kind != "shadowsocks" {
@@ -877,11 +879,42 @@ func TestAGroupWithAMissingRouteIsBlockedAndSaysWhy(t *testing.T) {
 		st.Plan.Rules[1].Target != "direct" {
 		t.Errorf("rules %+v", st.Plan.Rules[:2])
 	}
+	// The final order names each rule's group: the blocked one is still among
+	// them, so the group below it keeps its own name.
+	if o := e.Order(); len(o) < 2 || o[0].Group != "AI" || o[1].Group != "直连" {
+		t.Errorf("order %+v", o[:min(len(o), 2)])
+	}
 	// The route comes back, and the group is in force again.
 	e.ApplyRules(fixtures.AIAccounts())
 	if len(e.State().GroupErrors) != 0 {
 		t.Errorf("group errors %v", e.State().GroupErrors)
 	}
+}
+
+// Each new compile of the plan has a new PlanRev, which the views key what
+// they make from the plan by: its address could be had again by a new one.
+func TestThePlanRevGoesUpWithEachCompile(t *testing.T) {
+	e := newEngine(t, (&fakeNetworksetup{}).run)
+	e.addAndWait(t, subFile(t, "🇬🇧 London 01", "🇩🇪 Frankfurt 01"), 2)
+	rev := e.State().PlanRev
+	step := func(what string) {
+		t.Helper()
+		if r := e.State().PlanRev; r <= rev {
+			t.Errorf("%s: rev %d, was %d", what, r, rev)
+		} else {
+			rev = r
+		}
+	}
+	if errs := e.ApplyRules(fixtures.AIAccounts()); errs != nil {
+		t.Fatal(errs)
+	}
+	step("rules")
+	e.Choose("proxy", "🇩🇪 Frankfurt 01")
+	step("a node chosen")
+	if err := e.NewGroup("直连", "direct", "a.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	step("a group")
 }
 
 // The groups reach the config the core is run with.

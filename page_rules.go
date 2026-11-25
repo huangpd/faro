@@ -91,8 +91,11 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 // configPreview shows the config the rules in force make, in a code panel:
 // dark in either appearance, keys in one color and values in others.
 func (a *app) configPreview(c *ui.Context, st engine.State) {
-	if a.previewFor != st.RulesText+"|"+fmt.Sprint(len(st.Nodes)) || a.previewText == "" {
-		a.previewFor = st.RulesText + "|" + fmt.Sprint(len(st.Nodes))
+	// What the config is made from: the plan (new for new rules, groups, nodes or
+	// choices), the DNS servers and the port.
+	key := fmt.Sprintf("%d|%v|%d", st.PlanRev, st.DNS, st.MixedPort)
+	if a.previewFor != key || a.previewText == "" {
+		a.previewFor = key
 		out, err := a.eng.Preview()
 		if err != nil {
 			a.previewText = "// " + err.Error()

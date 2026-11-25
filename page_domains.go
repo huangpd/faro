@@ -97,6 +97,7 @@ func (a *app) domainsPage(c *ui.Context, st engine.State) {
 	}
 	ui.Scroll(c).Grow(1).Gap(12).Children(func() {
 		for i, g := range st.Groups {
+			c.Key("group:" + g.Name) // its fields stay with it when it moves
 			a.groupCard(c, st, i, g)
 		}
 		a.newGroupForm(c, st)

@@ -134,6 +134,7 @@ func httpClient(proxyPort int) *http.Client {
 // FetchCatalog fetches the list of names and keeps it in dir.
 func FetchCatalog(ctx context.Context, dir string, proxyPort int) ([]string, error) {
 	client := httpClient(proxyPort)
+	defer client.CloseIdleConnections() // a transport of its own keeps them open otherwise
 	var last error
 	for _, u := range catalogURLs() {
 		names, err := fetchNames(ctx, client, u)
@@ -214,6 +215,7 @@ func FetchOne(ctx context.Context, dir, name string, proxyPort int) error {
 		return err
 	}
 	client := httpClient(proxyPort)
+	defer client.CloseIdleConnections() // a transport of its own keeps them open otherwise
 	var last error
 	for _, u := range mirrorURLs(repo, name) {
 		if _, err := fetch(ctx, client, u, filepath.Join(dir, name+".srs")); err != nil {

@@ -24,7 +24,7 @@ const (
 // is said under it. It is made from the groups and the rules text, and is only
 // to read: what is changed is changed there.
 func (a *app) orderPage(c *ui.Context, st engine.State) {
-	key := fmt.Sprint(st.RulesText, st.Groups, st.GroupErrors, len(st.Nodes))
+	key := fmt.Sprintf("%d|%s|%v|%v", st.PlanRev, st.RulesText, st.Groups, st.GroupErrors) // a new plan for new nodes, choices, rules or groups
 	if a.orderFor != key {
 		a.orderFor, a.order = key, a.eng.Order()
 	}

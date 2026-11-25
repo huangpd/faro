@@ -172,8 +172,8 @@ func (e *Engine) settleExit(g int, r rules.Route, res ExitCheck) {
 	e.changed()
 	if sel != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := e.core.API().Select(ctx, r.Group(), sel); err != nil {
-			e.fail(err)
+		if err := e.core.API().Select(ctx, r.Group(), sel); err != nil && e.current(g) {
+			e.fail(err) // not when the core was stopped meanwhile: that is no trouble
 		}
 		cancel()
 	}

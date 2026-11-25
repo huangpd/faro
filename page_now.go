@@ -43,6 +43,7 @@ func (a *app) nowPage(c *ui.Context, st engine.State) {
 		ui.Text(c, "出口").FontSize(fsHeading).FontWeight(600)
 		if st.Plan != nil {
 			for i, r := range st.Plan.Routes {
+				c.Key("lane:" + r.ID)
 				a.lane(c, st, r, a.k.lanes[i%len(a.k.lanes)])
 			}
 		}
@@ -241,7 +242,11 @@ func (a *app) mainTop(c *ui.Context, st engine.State) {
 			if cur != "" {
 				name = shorten(cur, 34)
 			}
-			mono(ui.Text(c, name).FontSize(fsBody)).SingleLine().Tooltip(name)
+			tip := name
+			if cur != "" {
+				tip = cur // the whole name: the text may be shortened
+			}
+			mono(ui.Text(c, name).FontSize(fsBody)).SingleLine().Tooltip(tip)
 			a.delayPill(c, st, cur)
 			ui.Spacer(c)
 			label := "更换"

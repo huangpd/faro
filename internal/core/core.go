@@ -198,6 +198,8 @@ func (c *Core) Start(in singcfg.Input, mixed int) error {
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw
 	if err := cmd.Start(); err != nil {
+		pw.Close()
+		pr.Close()
 		return err
 	}
 	_ = os.WriteFile(c.pidFile(), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
@@ -212,7 +214,7 @@ func (c *Core) Start(in singcfg.Input, mixed int) error {
 		c.mu.Lock()
 		if c.cmd == cmd {
 			c.cmd = nil
-			if err != nil && !strings.Contains(err.Error(), "signal") {
+			if err != nil && !bySignal(err) { // a stop is a signal: no error
 				c.lastErr = err
 			}
 		}
@@ -224,9 +226,21 @@ func (c *Core) Start(in singcfg.Input, mixed int) error {
 	return nil
 }
 
+// bySignal says whether the process ended by a signal, from its exit status
+// rather than the words of the error.
+func bySignal(err error) bool {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return false
+	}
+	ws, ok := ee.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled()
+}
+
 // pump keeps the last lines of the core's output in a ring.
 func (c *Core) pump(r io.Reader) {
 	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20) // a long line is kept, up to 1 MiB
 	file := newLogFile(filepath.Join(c.dir, "logs", "core.log"), logFileSize, logFiles)
 	defer file.Close()
 	for sc.Scan() {
@@ -240,6 +254,9 @@ func (c *Core) pump(r io.Reader) {
 		c.mu.Unlock()
 		c.notify()
 	}
+	// A line longer still stops the scanner: what follows is read and dropped,
+	// or the core would block on its next write to a pipe nobody reads.
+	_, _ = io.Copy(io.Discard, r)
 }
 
 func (c *Core) notify() {

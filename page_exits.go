@@ -72,7 +72,7 @@ type section struct {
 }
 
 func (a *app) exitsPage(c *ui.Context, st engine.State) {
-	key := fmt.Sprint(st.RulesText, st.Groups, st.GroupErrors, len(st.Nodes))
+	key := fmt.Sprintf("%d|%s|%v|%v", st.PlanRev, st.RulesText, st.Groups, st.GroupErrors) // a new plan for new nodes, choices, rules or groups
 	if a.orderFor != key {
 		a.orderFor, a.order = key, a.eng.Order()
 	}
@@ -97,6 +97,7 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		}
 		sort.SliceStable(routes, func(x, y int) bool { return st.Plan.Routes[routes[x]].Line < st.Plan.Routes[routes[y]].Line })
 		for _, i := range routes {
+			c.Key("exit:" + st.Plan.Routes[i].ID) // its fields stay with it when exits come or go
 			a.exitCard(c, st, st.Plan.Routes[i], a.k.lanes[i%len(a.k.lanes)])
 		}
 		a.plainExitCard(c, st, rules.TargetProxy, a.k.text2.Alpha(0.5))
@@ -668,7 +669,7 @@ func (a *app) removeAppDialog(c *ui.Context) {
 		return
 	}
 	if ui.AlertDialog(c, &a.removeAsk, "移除 "+a.removeApp+"？", "它的流量会改由下面的规则决定，通常是 proxy。", "取消", "移除") == 1 {
-		a.appErr = errText(a.eng.DeleteGroup(a.removeApp))
+		a.exitErr = errText(a.eng.DeleteGroup(a.removeApp)) // shown above the exits: the add panel may be closed
 	}
 }
 

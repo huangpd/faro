@@ -49,6 +49,9 @@ func (a *app) settingsPage(c *ui.Context, st engine.State) {
 			a.dnsPicker(c, "国内网站", "domestic", st.DNS.Domestic, func(id string) { a.setDNS(id, st.DNS.Foreign) })
 			ui.Divider(c)
 			a.dnsPicker(c, "其他网站", "foreign", st.DNS.Foreign, func(id string) { a.setDNS(st.DNS.Domestic, id) })
+			if a.dnsErr != "" { // its own: the port's is cleared each frame it is not being edited
+				a.banner(c, a.k.danger, "shield-alert", a.dnsErr)
+			}
 		})
 		a.group(c, "规则集", func() {
 			text, stale := ruleSetsAge(st.RuleSetsChecked, time.Now())
@@ -203,7 +206,5 @@ func (a *app) setDNS(domestic, foreign string) {
 	if foreign == "" {
 		foreign = singcfg.DNSOptions("foreign")[0].ID
 	}
-	if err := a.eng.SetDNS(domestic, foreign); err != nil {
-		a.portErr = err.Error()
-	}
+	a.dnsErr = errText(a.eng.SetDNS(domestic, foreign))
 }

@@ -26,13 +26,7 @@ type Step struct {
 // when asked for, from the rules and groups in force.
 func (e *Engine) Order() []Step {
 	e.mu.Lock()
-	plan, text := e.plan, e.rulesText
-	var active []domains.Group
-	for _, g := range e.groupsList {
-		if e.groupErrs[g.Name] == "" {
-			active = append(active, g)
-		}
-	}
+	plan, text, active := e.plan, e.rulesText, e.planGroups
 	e.mu.Unlock()
 	if plan == nil {
 		return nil

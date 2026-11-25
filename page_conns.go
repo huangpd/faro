@@ -39,8 +39,11 @@ func (a *app) connsPage(c *ui.Context, st engine.State) {
 			a.col(c, "时长", 48, false, true)
 		})
 		ui.Divider(c)
-		ui.List(c, &a.connList, len(conns), func(i int) {
-			k := conns[i]
+		// Keyed by connection, not place: the rows are sorted anew each second.
+		// ItemKey only takes when set before Rows, not on a list given its rows.
+		ui.List(c, &a.connList, len(conns)).ItemKey(func(i int) any { return conns[i].ID }).Grow(1).Rows(func(lr ui.ListRow) {
+			c := lr.Context
+			k := conns[lr.Index]
 			on := k.ID == a.connSel
 			row := ui.ButtonBase(c).Padding(7, 16).Gap(12).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(k.Host)
 			switch {
@@ -68,7 +71,7 @@ func (a *app) connsPage(c *ui.Context, st engine.State) {
 					a.connSel = k.ID
 				}
 			}
-		}).Grow(1)
+		})
 	})
 	if k, ok := a.selectedConn(conns); ok {
 		a.why(c, st, k)

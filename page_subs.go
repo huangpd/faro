@@ -34,6 +34,7 @@ func (a *app) subsPage(c *ui.Context, st engine.State) {
 			return
 		}
 		for _, s := range st.Subs {
+			c.Key("sub:" + s.ID)
 			a.subCard(c, st, s)
 		}
 	})

@@ -117,6 +117,7 @@ type State struct {
 	Notices    []string
 	Choices    map[string]string // the node picked per route; "proxy" is the main group
 	Plan       *rules.Plan       // the rules compiled against the nodes; nil if the text has errors
+	PlanRev    int               // goes up each time the plan is compiled again: a key for what is made from it
 	PlanErrors []rules.Error     // why Plan is nil
 	RulesText  string
 	// Groups are the person's own sites by group, checked before RulesText. A
@@ -177,7 +178,11 @@ type Engine struct {
 	rulesText     string
 	groupsList    []domains.Group
 	groupErrs     map[string]string
+	planRev       int             // counts the compiles; Plan's address may be reused, this is not
+	planGroups    []domains.Group // the groups the plan was compiled with, in its order
 	delays        map[string]int
+	setFetch      sync.Mutex // one fetch of an application's rule sets at a time
+	testRound     int        // which TestAll is current: an older one's answers are dropped
 	works         map[string]bool
 	exits         map[string]ExitCheck
 	exitOpen      map[string]bool // routes this run's check has opened
@@ -299,6 +304,7 @@ func (e *Engine) State() State {
 		Notices:    append([]string(nil), e.notices...),
 		Choices:    copyMap(e.choices),
 		Plan:       e.plan,
+		PlanRev:    e.planRev,
 		PlanErrors: append([]rules.Error(nil), e.planErrs...),
 		RulesText:  e.rulesText, Groups: domains.Copy(e.groupsList), GroupErrors: copyMap(e.groupErrs), Delays: copyInts(e.delays), Works: copyBools(e.works), Exits: copyExits(e.exits), Testing: copyBools(e.testing),
 		SystemProxy: e.prefs.SystemProxy, LightMode: e.prefs.LightMode, MixedPort: e.prefs.MixedPort,
@@ -380,7 +386,8 @@ func (e *Engine) recompileLocked(tags []string) {
 			tags[i] = n.Tag
 		}
 	}
-	e.plan, e.planErrs, e.groupErrs = compileWithGroups(e.groupsList, e.rulesText, tags, e.choices)
+	e.planRev++
+	e.plan, e.planErrs, e.groupErrs, e.planGroups = compileWithGroups(e.groupsList, e.rulesText, tags, e.choices)
 	e.groupNodesLocked()
 }
 
@@ -666,6 +673,8 @@ func (e *Engine) TestAll() {
 		tags[i] = n.Tag
 	}
 	e.delays, e.works = map[string]int{}, map[string]bool{}
+	e.testRound++
+	g, round := e.gen, e.testRound
 	e.mu.Unlock()
 	e.changed()
 	api := e.core.API()
@@ -682,7 +691,10 @@ func (e *Engine) TestAll() {
 				defer cancel()
 				rtt, works := e.measure(ctx, api, tag)
 				e.mu.Lock()
-				e.delays[tag], e.works[tag] = rtt, works
+				// Not for a core that has since gone, nor into a newer round's answers.
+				if e.gen == g && e.testRound == round {
+					e.delays[tag], e.works[tag] = rtt, works
+				}
 				e.mu.Unlock()
 				e.changed()
 			}()
@@ -754,7 +766,7 @@ func (e *Engine) ApplyRules(text string) []rules.Error {
 	for i, n := range e.nodes {
 		tags[i] = n.Tag
 	}
-	next, errs, _ := compileWithGroups(e.groupsList, text, tags, e.choices)
+	next, errs, _, _ := compileWithGroups(e.groupsList, text, tags, e.choices)
 	if errs != nil {
 		e.mu.Unlock()
 		return errs
@@ -863,6 +875,9 @@ func (e *Engine) UpdateRuleSets() {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		res, err := e.opts.FetchRuleSets(ctx, e.setsDir, port)
+		if res.Changed > 0 { // what the groups' sets hold may overlap differently now
+			go e.refreshOverlaps()
+		}
 		e.mu.Lock()
 		e.busy = ""
 		if err != nil {
@@ -937,13 +952,15 @@ func (e *Engine) maybeUpdateRuleSets() {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	res, err := e.opts.FetchRuleSets(ctx, e.setsDir, port)
+	if res.Changed > 0 { // what the groups' sets hold may overlap differently now
+		go e.refreshOverlaps()
+	}
 	if err != nil { // some may have come: they are in place. The rest, next time.
 		return
 	}
 	e.mu.Lock()
 	e.markRuleSetsCheckedLocked()
 	e.mu.Unlock()
-	_ = res
 	e.changed()
 }
 
@@ -958,14 +975,21 @@ func (e *Engine) SetSystemProxy(on bool) {
 	if err := e.prefs.Save(); err != nil {
 		e.err = err.Error()
 	}
-	running, port := e.status == Running, e.prefs.MixedPort
 	e.mu.Unlock()
 	e.changed()
 	go func() {
+		// What is applied is the latest wish, read when its turn comes, not the
+		// one of this call: switches in quick succession, or a start or stop
+		// running at the same time, end with the proxy as the last of them says.
+		e.life.Lock()
+		defer e.life.Unlock()
+		e.mu.Lock()
+		on, running := e.prefs.SystemProxy, e.status == Running
+		e.mu.Unlock()
 		var err error
 		switch {
 		case on && running:
-			err = e.proxy.Enable("127.0.0.1", port)
+			err = e.proxy.Enable("127.0.0.1", e.core.MixedPort())
 		case !on:
 			err = e.proxy.Disable()
 		}
@@ -1091,6 +1115,7 @@ func (e *Engine) Restart() {
 		e.cancel = nil
 	}
 	e.status, e.err = Starting, ""
+	e.exits = map[string]ExitCheck{} // seen through the core that is going
 	e.mu.Unlock()
 	e.changed()
 	go func() {
@@ -1129,6 +1154,7 @@ func (e *Engine) Stop() {
 		if e.gen == g {
 			e.status, e.rate = Stopped, clashapi.Traffic{}
 			e.history, e.conns = nil, nil
+			e.exits = map[string]ExitCheck{}
 		}
 		e.mu.Unlock()
 		e.changed()
@@ -1148,8 +1174,12 @@ func (e *Engine) Close() {
 		e.cancel()
 	}
 	e.mu.Unlock()
+	// Under life: a start under way finishes first, and sees it is no longer
+	// current, so no core is started after this stop and left running.
+	e.life.Lock()
 	_ = e.proxy.Disable()
 	e.core.Stop()
+	e.life.Unlock()
 }
 
 // current reports whether run g is still the one the engine wants.
@@ -1165,6 +1195,7 @@ func (e *Engine) stopped(g int, msg string) {
 	if e.gen == g {
 		e.status, e.err, e.rate = Stopped, msg, clashapi.Traffic{}
 		e.history, e.conns = nil, nil
+		e.exits = map[string]ExitCheck{}
 	}
 	e.mu.Unlock()
 	e.changed()
@@ -1186,7 +1217,7 @@ func (e *Engine) run(g int) {
 	for i, n := range nodes {
 		tags[i] = n.Tag
 	}
-	plan, errs, _ := compileWithGroups(groups, text, tags, choices)
+	plan, errs, _, _ := compileWithGroups(groups, text, tags, choices)
 	if errs != nil { // the saved text was checked when saved; this is a file edited by hand
 		e.stopped(g, "rules: "+errs[0].Error())
 		return
@@ -1224,11 +1255,16 @@ func (e *Engine) run(g int) {
 	wcancel()
 	if err != nil {
 		cancel()
+		// Under life, as at the end: a newer run's core is not this one's to stop.
+		e.life.Lock()
 		if !e.current(g) {
+			e.life.Unlock()
 			return
 		}
+		logs := e.core.Logs()
 		e.core.Stop()
-		e.stopped(g, err.Error()+lastLogLine(e.core.Logs())) // the reason is in the core's own words
+		e.life.Unlock()
+		e.stopped(g, err.Error()+lastLogLine(logs)) // the reason is in the core's own words
 		return
 	}
 	e.mu.Lock()
@@ -1237,15 +1273,24 @@ func (e *Engine) run(g int) {
 		return
 	}
 	e.status, e.version = Running, v.Version
-	want := e.prefs.SystemProxy
-	e.exitOpen = map[string]bool{} // a new run starts with its checked routes cut
+	e.exitOpen = map[string]bool{}   // a new run starts with its checked routes cut
+	e.exits = map[string]ExitCheck{} // and shows them as not yet checked, not as the last run saw them
 	e.mu.Unlock()
 	e.changed()
 	go e.watchExits(ctx, g)
 	go e.maybeUpdateRuleSets() // now there is a proxy to fetch through, if the direct way failed
+	// Read under life, with the proxy switch in its own goroutine waiting on it:
+	// only while this run is the current one (a stop or quit that has put the
+	// proxy back must not have it set again), and only while the person still
+	// wants it (switched off since the core came up, it stays off).
+	e.life.Lock()
+	e.mu.Lock()
+	want := e.gen == g && e.prefs.SystemProxy
+	e.mu.Unlock()
 	if want {
 		e.fail(e.proxy.Enable("127.0.0.1", e.core.MixedPort()))
 	}
+	e.life.Unlock()
 	_ = e.core.API().StreamTraffic(ctx, func(t clashapi.Traffic) {
 		e.mu.Lock()
 		if e.gen == g {
@@ -1262,8 +1307,16 @@ func (e *Engine) run(g int) {
 	if ctx.Err() != nil || !e.current(g) {
 		return
 	}
+	// Under life, and checked again there: a restart that came in meanwhile has
+	// a core and a proxy of its own, which are not this run's to undo.
+	e.life.Lock()
+	if !e.current(g) {
+		e.life.Unlock()
+		return
+	}
 	e.fail(e.proxy.Disable()) // the core is gone: do not leave a dead proxy
 	e.core.Stop()             // reaps it if only the stream broke
+	e.life.Unlock()
 	msg := "sing-box stopped unexpectedly"
 	if ce := e.core.Err(); ce != nil {
 		msg += ": " + ce.Error()
@@ -1370,14 +1423,15 @@ func (e *Engine) Preview() (string, error) {
 	e.mu.Lock()
 	plan := e.plan
 	choices := copyMap(e.choices)
+	dns := singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign}
+	port := e.prefs.MixedPort
 	e.mu.Unlock()
 	if plan == nil {
 		return "", errors.New("the rules have errors")
 	}
 	nodes := e.store.Outbounds()
-	in := singcfg.Input{Nodes: nodes, Plan: plan, Choices: choices, Sets: ruleset.Paths(e.setsDir),
-		DNS: singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign}}
-	cfg, _, err := singcfg.Build(singcfg.Settings{MixedPort: e.prefs.MixedPort, APIPort: 1, Secret: "x"}, in)
+	in := singcfg.Input{Nodes: nodes, Plan: plan, Choices: choices, Sets: ruleset.Paths(e.setsDir), DNS: dns}
+	cfg, _, err := singcfg.Build(singcfg.Settings{MixedPort: port, APIPort: 1, Secret: "x"}, in)
 	if err != nil {
 		return "", err
 	}
@@ -1448,7 +1502,11 @@ func scrub(doc map[string]any) {
 // A group whose exit is not in the text (renamed, or taken out) is not left
 // out: what it holds is BLOCKED, as a route with no node is. Left out, its
 // traffic would fall through to the rules below it and leave by another exit.
-func compileWithGroups(groups []domains.Group, text string, tags []string, choices map[string]string) (*rules.Plan, []rules.Error, map[string]string) {
+//
+// The fourth result is the groups the plan holds, in its order: a blocked group
+// is among them though it has an error, so it is what the plan's group lines
+// count, not the groups without errors.
+func compileWithGroups(groups []domains.Group, text string, tags []string, choices map[string]string) (*rules.Plan, []rules.Error, map[string]string, []domains.Group) {
 	var bad map[string]string
 	active := domains.Copy(groups)
 	if p, _ := rules.Compile(text, tags, choices); p != nil {
@@ -1486,7 +1544,7 @@ func compileWithGroups(groups []domains.Group, text string, tags []string, choic
 			}
 		}
 		if len(drop) == 0 {
-			return plan, mine, bad
+			return plan, mine, bad, active
 		}
 		var keep []domains.Group
 		for i, g := range active {

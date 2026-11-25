@@ -343,6 +343,11 @@ func TestConnectionsListsAndExplains(t *testing.T) {
 	})
 	tt := view(a)
 	need(t, tt, "192.0.2.77:443", "主机", "进程", "出口")
+	// The rows are keyed by connection: the key reached the list (set after a
+	// list given its rows, it would not have).
+	if a.connList.Key == nil {
+		t.Error("the connection rows have no key")
+	}
 	if err := tt.Click("192.0.2.77:443"); err != nil {
 		t.Fatal(err)
 	}

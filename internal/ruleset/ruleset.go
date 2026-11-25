@@ -130,6 +130,7 @@ func Update(ctx context.Context, dir string, proxyPort int) (Result, error) {
 		u, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", proxyPort))
 		client.Transport = &http.Transport{Proxy: http.ProxyURL(u)}
 	}
+	defer client.CloseIdleConnections() // a transport of its own keeps them open otherwise
 	var res Result
 	var errs []error
 	for name, repo := range wanted(dir) {

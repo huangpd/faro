@@ -329,6 +329,8 @@ func TestMoreErrors(t *testing.T) {
 		"block udp\n":                                  "expected: <route> [flags] <kind>:<value>",
 		"block color:red\n":                            "expected a flag",
 		"block path:(\n":                               "bad regular expression",
+		"block cidr:999.999.999.999\n":                 "bad address range",
+		"block cidr:10.0.0.0/33\n":                     "bad address range",
 	}
 	for text, want := range cases {
 		_, errs := Compile(text, []string{"UK 1"}, nil)

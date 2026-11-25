@@ -130,10 +130,8 @@ func (e *Engine) addApp(target, name, id string, sites, sets, others []string) e
 	if err != nil {
 		return err
 	}
-	for _, s := range have {
-		if err := e.putSet(name, s); err != nil {
-			return err
-		}
+	if err := e.putSets(name, have); err != nil {
+		return err
 	}
 	if len(fetch) > 0 {
 		go e.fetchSetsFor(name, fetch)
@@ -141,28 +139,43 @@ func (e *Engine) addApp(target, name, id string, sites, sets, others []string) e
 	return nil
 }
 
-// fetchSetsFor fetches rule sets and puts each that came in the group. What
-// did not come is said; the group works by its sites meanwhile.
+// fetchSetsFor fetches rule sets and puts those that came in the group, in one
+// change (one restart). What did not come is said; the group works by its
+// sites meanwhile. One fetch at a time: applications added together wait their
+// turn. The busy line is its own only when nothing else had it: another task's
+// is neither overwritten nor cleared.
 func (e *Engine) fetchSetsFor(group string, names []string) {
-	var failed []string
+	e.setFetch.Lock()
+	defer e.setFetch.Unlock()
+	var got, failed []string
+	mine := ""
 	for _, name := range names {
 		e.mu.Lock()
 		port := e.proxyPortLocked()
-		e.busy = "正在取规则集 " + strings.TrimPrefix(name, "geosite-") + "…"
+		if e.busy == "" || e.busy == mine {
+			mine = "正在取规则集 " + strings.TrimPrefix(name, "geosite-") + "…"
+			e.busy = mine
+		}
 		e.mu.Unlock()
 		e.changed()
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		err := e.opts.FetchSet(ctx, e.setsDir, name, port)
 		cancel()
-		if err == nil {
-			err = e.putSet(group, name)
-		}
 		if err != nil {
+			failed = append(failed, strings.TrimPrefix(name, "geosite-"))
+		} else {
+			got = append(got, name)
+		}
+	}
+	if err := e.putSets(group, got); err != nil {
+		for _, name := range got {
 			failed = append(failed, strings.TrimPrefix(name, "geosite-"))
 		}
 	}
 	e.mu.Lock()
-	e.busy = ""
+	if mine != "" && e.busy == mine {
+		e.busy = ""
+	}
 	if len(failed) > 0 {
 		e.err = group + "：规则集 " + strings.Join(failed, "、") + " 没取到，先按它的域名走"
 	}

@@ -112,21 +112,32 @@ func (e *Engine) AddSet(group, name string) error {
 // putSet puts the set in the group, taking it from any other: one set is in one
 // group, so that where its sites go is never in doubt.
 func (e *Engine) putSet(group, name string) error {
+	return e.putSets(group, []string{name})
+}
+
+// putSets puts several rule sets in a group in one change: one restart of a
+// running core, not one for each.
+func (e *Engine) putSets(group string, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, group)
 		if i < 0 {
 			return nil, ErrGroup("没有叫 " + group + " 的分组")
 		}
-		for j := range gs {
-			var keep []string
-			for _, s := range gs[j].Sets {
-				if s != name {
-					keep = append(keep, s)
+		for _, name := range names {
+			for j := range gs {
+				var keep []string
+				for _, s := range gs[j].Sets {
+					if s != name {
+						keep = append(keep, s)
+					}
 				}
+				gs[j].Sets = keep
 			}
-			gs[j].Sets = keep
+			gs[i].Sets = append(gs[i].Sets, name)
 		}
-		gs[i].Sets = append(gs[i].Sets, name)
 		return gs, nil
 	})
 }

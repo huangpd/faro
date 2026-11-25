@@ -95,6 +95,7 @@ type app struct {
 	portText    string             // the port field, while it is being edited
 	portEditing bool
 	portErr     string
+	dnsErr      string
 
 	connQuery string
 	connSel   string // the connection whose "why" is shown
