@@ -60,6 +60,10 @@ type app struct {
 	customName, customText string
 	removeApp              string // the application asked about removing
 	removeAsk              bool
+	newExit                newExitForm
+	delExit                string // the exit asked about deleting
+	delExitAsk             bool
+	exitErr                string // why an exit was not deleted
 
 	orderFor string        // what the order was worked out for
 	order    []engine.Step // the rules in force, as the core checks them

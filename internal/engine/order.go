@@ -101,3 +101,53 @@ func (e *Engine) EditRoute(id string, change func(*rules.RouteLine)) []rules.Err
 
 // CheckExits asks every checked route where it leaves from, now.
 func (e *Engine) CheckExits() { e.kickExits() }
+
+// AddRoute adds an exit: its line goes after the last route line of the text
+// (at the top when there is none), and the text is applied as ApplyRules does.
+func (e *Engine) AddRoute(rl rules.RouteLine) []rules.Error {
+	e.mu.Lock()
+	text := e.rulesText
+	e.mu.Unlock()
+	if _, ok := rules.ReadRoute(text, rl.ID); ok {
+		return []rules.Error{{Msg: "已经有叫 " + rl.ID + " 的出口"}}
+	}
+	lines := strings.Split(text, "\n")
+	at := 0
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "route ") {
+			at = i + 1
+		}
+	}
+	lines = append(lines[:at], append([]string{rl.String()}, lines[at:]...)...)
+	return e.ApplyRules(strings.Join(lines, "\n"))
+}
+
+// DeleteRoute takes an exit out of the text. One that still has applications
+// on it is refused: they would be blocked until moved.
+func (e *Engine) DeleteRoute(id string) []rules.Error {
+	e.mu.Lock()
+	text := e.rulesText
+	var apps []string
+	for _, g := range e.groupsList {
+		if g.Target == id {
+			apps = append(apps, g.Name)
+		}
+	}
+	e.mu.Unlock()
+	if len(apps) > 0 {
+		return []rules.Error{{Msg: "先把 " + strings.Join(apps, "、") + " 移到别的出口"}}
+	}
+	var keep []string
+	found := false
+	for _, l := range strings.Split(text, "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "route" && f[1] == id {
+			found = true
+			continue
+		}
+		keep = append(keep, l)
+	}
+	if !found {
+		return []rules.Error{{Msg: "没有叫 " + id + " 的出口"}}
+	}
+	return e.ApplyRules(strings.Join(keep, "\n"))
+}

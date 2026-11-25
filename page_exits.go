@@ -77,6 +77,9 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		a.orderFor, a.order = key, a.eng.Order()
 	}
 	a.groups = st.Groups
+	if a.exitErr != "" {
+		a.banner(c, a.k.danger, "shield-alert", a.exitErr)
+	}
 	for _, g := range st.Groups {
 		if msg := st.GroupErrors[g.Name]; msg != "" {
 			a.banner(c, a.k.danger, "shield-alert", g.Name+"："+msg)
@@ -98,8 +101,17 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		}
 		a.plainExitCard(c, st, rules.TargetProxy, a.k.text2.Alpha(0.5))
 		a.plainExitCard(c, st, rules.TargetDirect, a.k.ok.Alpha(0.6))
+		a.newExitCard(c, st)
 	})
 	a.removeAppDialog(c)
+	if a.delExitAsk && ui.AlertDialog(c, &a.delExitAsk, "删除出口 "+a.delExit+"？", "规则文本里它的那一行会被删掉。", "取消", "删除") == 1 {
+		if errs := a.eng.DeleteRoute(a.delExit); errs != nil {
+			a.exitErr = errs[0].Msg
+		} else {
+			a.exitErr = ""
+			delete(a.exitEdit, a.delExit)
+		}
+	}
 }
 
 // sections gathers the steps that send to target by their heading, in order.
@@ -539,6 +551,9 @@ func (a *app) exitSettingsFoot(c *ui.Context, r rules.Route, d *exitDraft) {
 		})
 	}
 	ui.Row(c).Gap(8).Padding(6, 0, 0, 0).AlignItems(ui.Center).Children(func() {
+		if a.button(c, btnGhost, "trash-2", "删除出口").Label("删除出口 " + r.ID).Clicked() {
+			a.delExit, a.delExitAsk = r.ID, true
+		}
 		ui.Text(c, "保存后改写这条出口在规则文本里的那一行，内核会重启。").FontSize(fsCaption).TextColor(a.k.text2).Grow(1)
 		if a.button(c, btnSecondary, "", "取消").Clicked() {
 			delete(a.exitEdit, r.ID)
@@ -651,4 +666,108 @@ func (a *app) removeAppDialog(c *ui.Context) {
 	if ui.AlertDialog(c, &a.removeAsk, "移除 "+a.removeApp+"？", "它的流量会改由下面的规则决定，通常是 proxy。", "取消", "移除") == 1 {
 		a.appErr = errText(a.eng.DeleteGroup(a.removeApp))
 	}
+}
+
+// newExitForm is a new exit while it is being written.
+type newExitForm struct {
+	open                    bool
+	id, kind, arg           string // kind: byName or byRegion
+	gate, ipv4, noUDP, noV6 bool
+	errs                    []rules.Error
+}
+
+const (
+	byName   = "名称匹配"
+	byRegion = "地区"
+)
+
+// newExitCard is a button at the end of the exits, and the form it opens: a
+// name, which nodes, and the guards. The rest is in the exit's settings once
+// it is made.
+func (a *app) newExitCard(c *ui.Context, st engine.State) {
+	f := &a.newExit
+	if !f.open {
+		ui.Row(c).Children(func() {
+			if a.button(c, btnSecondary, "plus", "新建出口").Clicked() {
+				*f = newExitForm{open: true, kind: byName, gate: true, ipv4: true}
+			}
+		})
+		return
+	}
+	row := func(label string, body func()) {
+		ui.Row(c).MinHeight(34).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, label).FontSize(fsMeta).TextColor(a.k.text2).Width(72)
+			body()
+		})
+	}
+	a.card(c).Gap(6).Children(func() {
+		ui.Text(c, "新建出口").FontSize(fsHeading).FontWeight(600)
+		row("名字", func() {
+			mono(ui.TextInput(c, &f.id).Label("出口名").Placeholder("小写字母、数字和 -，如 work").Width(240))
+		})
+		row("节点", func() {
+			ui.Select(c, &f.kind, []string{byName, byRegion}).Label("节点的选法").Width(120)
+			if f.kind == byRegion {
+				regions := rules.RegionIDs()
+				if st.Plan != nil {
+					regions = st.Plan.Regions()
+				}
+				if !containsStr(regions, f.arg) {
+					f.arg = regions[0]
+				}
+				ui.Select(c, &f.arg, regions).Label("地区").Width(100)
+				return
+			}
+			mono(ui.TextInput(c, &f.arg).Label("节点名称的正则").Placeholder("节点名称的开头，如 ^UK-2-").Width(240))
+			if re, err := regexp.Compile(f.arg); err == nil && f.arg != "" {
+				n := 0
+				for _, nd := range st.Nodes {
+					if re.MatchString(nd.Tag) {
+						n++
+					}
+				}
+				col := a.k.text2
+				if n == 0 {
+					col = a.k.danger
+				}
+				ui.Text(c, fmt.Sprintf("符合的 %d 个", n)).FontSize(fsCaption).TextColor(col)
+			}
+		})
+		row("守卫", func() {
+			ui.Row(c).Gap(20).AlignItems(ui.Center).Children(func() {
+				for _, g := range []struct {
+					name string
+					on   *bool
+				}{{"熔断门", &f.gate}, {"仅 IPv4", &f.ipv4}, {"阻断 UDP", &f.noUDP}, {"阻断 IPv6", &f.noV6}} {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						ui.Switch(c, g.on).Label("新出口 " + g.name)
+						ui.Text(c, g.name).FontSize(fsBody)
+					})
+				}
+			})
+		})
+		for _, e := range f.errs {
+			ui.Text(c, e.Msg).FontSize(fsMeta).TextColor(a.k.danger).Selectable()
+		}
+		ui.Row(c).Gap(8).Padding(6, 0, 0, 0).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "出口范围和核对在建好后的「出口设置」里加。").FontSize(fsCaption).TextColor(a.k.text2).Grow(1)
+			if a.button(c, btnSecondary, "", "取消").Clicked() {
+				f.open = false
+			}
+			if a.button(c, btnPrimary, "check", "建好").Clicked() {
+				kind := "regex"
+				if f.kind == byRegion {
+					kind = "region"
+				}
+				rl := rules.RouteLine{ID: strings.TrimSpace(f.id), Kind: kind, Arg: strings.TrimSpace(f.arg),
+					Gate: f.gate, IPv4: f.ipv4, NoUDP: f.noUDP, NoIPv6: f.noV6}
+				if errs := a.eng.AddRoute(rl); errs != nil {
+					f.errs = errs
+				} else {
+					a.exitOpen[rl.ID] = true
+					*f = newExitForm{}
+				}
+			}
+		})
+	})
 }

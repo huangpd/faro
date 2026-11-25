@@ -1615,3 +1615,45 @@ func TestNotifyingNeverWaitsAndPostsOnce(t *testing.T) {
 		t.Errorf("after it ran: posted %d, ran %d", len(posted), runs)
 	}
 }
+
+// An exit is made on the page, without the rules text; one that still has
+// applications cannot be deleted, an empty one can.
+func TestAnExitIsMadeAndDeletedOnThePage(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧英国-UK-2-流量倍率:1", "🇩🇪德国-DE-2-流量倍率:1")
+	a.setPage(pageRules)
+	view(a, "新建出口")
+	f := &a.newExit
+	f.id, f.arg, f.noUDP = "work", "英国-UK-2-", true
+	tt := view(a)
+	need(t, tt, "符合的 1 个", "建好")
+	view(a, "建好")
+	if got := a.eng.State().RulesText; !strings.Contains(got, "route work regex \"英国-UK-2-\" gate ipv4 noudp") {
+		t.Fatalf("rules text:\n%s", got)
+	}
+	if a.newExit.open || !a.exitOpen["work"] {
+		t.Error("the form stays open, or the new exit is not shown open")
+	}
+	// A bad one is refused and said.
+	view(a, "新建出口")
+	a.newExit.id, a.newExit.arg = "Bad Name", "x"
+	tt = view(a, "建好")
+	if len(a.newExit.errs) == 0 || strings.Contains(a.eng.State().RulesText, "Bad Name") {
+		t.Errorf("a bad name was taken: %v", a.newExit.errs)
+	}
+	a.newExit.open = false
+	// With an application on it, it is not deleted.
+	if err := a.eng.AddCustomApp("work", "办公", "work.example"); err != nil {
+		t.Fatal(err)
+	}
+	if errs := a.eng.DeleteRoute("work"); errs == nil || !strings.Contains(errs[0].Msg, "办公") {
+		t.Errorf("deleted with an application on it: %v", errs)
+	}
+	a.eng.DeleteGroup("办公")
+	a.startExitEdit(a.eng.State(), "work")
+	view(a, "删除出口 work")
+	view(a, "删除")
+	if strings.Contains(a.eng.State().RulesText, "route work") {
+		t.Error("not deleted")
+	}
+}
