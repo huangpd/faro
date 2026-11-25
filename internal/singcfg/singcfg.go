@@ -91,9 +91,16 @@ func freePort() (int, error) {
 // not be a request that such a service sees from there.
 const ProbeURL = "https://cp.cloudflare.com/generate_204"
 
-// TraceURL answers, among other things, the address a request came from: what
-// the world sees of a route's exit. The same host as ProbeURL.
-const TraceURL = "https://cp.cloudflare.com/cdn-cgi/trace"
+// TraceURLs answer the address a request came from: what the world sees of a
+// route's exit. They are asked in turn until one answers, so that one service
+// being down does not leave every checked route cut. Each answers either a
+// trace ("ip=..." on a line) or the address alone.
+var TraceURLs = []string{
+	"https://cp.cloudflare.com/cdn-cgi/trace",
+	"https://1.0.0.1/cdn-cgi/trace",
+	"https://api.ipify.org",
+	"https://ifconfig.me/ip",
+}
 
 // cnRuleSet is the rule set that tells names in China: what the DNS asks the
 // domestic server for. It is the one the base rules send direct.

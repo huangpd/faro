@@ -70,7 +70,7 @@ func (a *app) settingsPage(c *ui.Context, st engine.State) {
 			})
 		})
 		a.group(c, "关于", func() {
-			a.setting(c, "Faro", func() { mono(ui.Text(c, version).FontSize(fsBody).TextColor(a.k.text2)) })
+			a.setting(c, "Faro", func() { mono(ui.Text(c, version()).FontSize(fsBody).TextColor(a.k.text2)) })
 		})
 	})
 }

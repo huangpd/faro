@@ -111,20 +111,20 @@ func (a *app) sections(target string) []section {
 			continue
 		}
 		label := s.Label
-		if label == "" {
+		if s.Group != "" {
+			label = s.Group
+		} else if label == "" {
 			label = "规则文本"
 		}
-		i, ok := at[label]
+		key := s.Group + "\x00" + label // an application and a heading never share a row
+		i, ok := at[key]
 		if !ok {
 			i = len(out)
-			at[label] = i
-			name, group := strings.CutPrefix(label, "分组 · ")
-			sec := section{label: name, group: group}
-			if group {
-				for _, g := range a.groups {
-					if g.Name == name {
-						sec.app = g.App
-					}
+			at[key] = i
+			sec := section{label: label, group: s.Group != ""}
+			for _, g := range a.groups {
+				if s.Group != "" && g.Name == s.Group {
+					sec.app = g.App
 				}
 			}
 			out = append(out, sec)

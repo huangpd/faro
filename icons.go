@@ -5,7 +5,10 @@ import (
 	"path"
 	"strings"
 
+	"encoding/json"
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"sync"
 )
 
 // The icons are Lucide's (ISC licence), one family, one stroke.
@@ -22,8 +25,22 @@ var logoSVG []byte
 
 var logo = ui.MustParseSVG(logoSVG)
 
-// version is shown under the name.
-const version = "0.1.0"
+// version is shown under the name: the packaged app's, else the one mygo.json
+// gives the build, so that there is one place it is written.
+// It is read the first time it is shown, once the app is up.
+var version = sync.OnceValue(func() string {
+	if v := mygo.App.Version(); v != "" {
+		return v
+	}
+	var cfg struct{ Version string }
+	if json.Unmarshal(buildConfig, &cfg) == nil && cfg.Version != "" {
+		return cfg.Version
+	}
+	return "dev"
+})
+
+//go:embed mygo.json
+var buildConfig []byte
 
 func loadIcons() map[string]*ui.SVG {
 	m := map[string]*ui.SVG{}

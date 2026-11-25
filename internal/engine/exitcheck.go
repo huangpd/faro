@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"errors"
 	"faro/internal/rules"
 	"faro/internal/singcfg"
+	"net/netip"
 )
 
 // A route may say where it is allowed to leave from (exit:<range>). While the
@@ -187,7 +189,8 @@ func (e *Engine) settleExit(g int, r rules.Route, res ExitCheck) {
 }
 
 // exitIP asks where a route group leaves from: through the hook in tests, else
-// Cloudflare's trace, through the group's check entrance.
+// through the group's check entrance, of the services in singcfg.TraceURLs in
+// turn, until one answers.
 func (e *Engine) exitIP(ctx context.Context, group string) (string, error) {
 	if e.opts.ExitIP != nil {
 		return e.opts.ExitIP(ctx, group)
@@ -198,7 +201,35 @@ func (e *Engine) exitIP(ctx context.Context, group string) (string, error) {
 	}
 	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, singcfg.TraceURL, nil)
+	return firstIP(ctx, client, singcfg.TraceURLs)
+}
+
+// firstIP asks the services in turn, and gives the first address one answers;
+// with none, why each did not.
+func firstIP(ctx context.Context, client *http.Client, urls []string) (string, error) {
+	var errs []string
+	for _, u := range urls {
+		ip, err := askIP(ctx, client, u)
+		if err == nil {
+			return ip, nil
+		}
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		host := u
+		if p, perr := url.Parse(u); perr == nil {
+			host = p.Host
+		}
+		errs = append(errs, host+": "+err.Error())
+	}
+	return "", errors.New(strings.Join(errs, "；"))
+}
+
+// askIP asks one service for the address the request came from.
+func askIP(ctx context.Context, client *http.Client, u string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", err
 	}
@@ -217,8 +248,12 @@ func (e *Engine) exitIP(ctx context.Context, group string) (string, error) {
 func traceIP(r io.Reader) (string, error) {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
-		if v, ok := strings.CutPrefix(sc.Text(), "ip="); ok && v != "" {
+		line := strings.TrimSpace(sc.Text())
+		if v, ok := strings.CutPrefix(line, "ip="); ok && v != "" {
 			return v, nil
+		}
+		if a, err := netip.ParseAddr(line); err == nil { // the address alone
+			return a.String(), nil
 		}
 	}
 	return "", fmt.Errorf("the answer had no address")

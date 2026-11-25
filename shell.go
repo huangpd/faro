@@ -76,7 +76,7 @@ func (a *app) sidebar(c *ui.Context, st engine.State, bar ui.TitleBar) {
 		ui.Box(c).Size(36, 36).Radius(10).Border(1, ui.RGBA(255, 255, 255, 0.10)).Clip().Children(func() { ui.Image(c, logo).Size(34, 34) })
 		ui.Column(c).Gap(0).Children(func() {
 			ui.Text(c, "Faro").FontSize(fsHeading).FontWeight(600)
-			ui.Text(c, "v"+version).FontSize(fsCaption).TextColor(a.k.text2)
+			ui.Text(c, "v"+version()).FontSize(fsCaption).TextColor(a.k.text2)
 		})
 	})
 

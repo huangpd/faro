@@ -378,19 +378,22 @@ func (a *app) groupedChips(c *ui.Context, st engine.State, chosen string, pick f
 // fit, and shares the room left, so no row ends short of the card's edge.
 const chipMin = 190
 
-// chipColumns is how many chips fit across the card in a window of this width:
-// the window less the sidebar (216), the page's margins (56) and the card's
-// padding and the lane's edge (4 + 32 + 2).
-func chipColumns(c *ui.Context) int {
-	w, _ := c.Size()
-	room := w - 216 - 56 - 38
-	n := int((room + 8) / (chipMin + 8))
-	return max(n, 1)
+// chipColumns is how many chips fit across room DIPs.
+func chipColumns(room float32) int {
+	return max(int((room+8)/(chipMin+8)), 1)
 }
 
-// chipGrid lays chips out in equal columns across the card.
+// chipGrid lays chips out in equal columns across the room it is given: its
+// own width as last laid out, whatever is beside it (a map, a sidebar); the
+// first time, before it has one, the window's.
 func (a *app) chipGrid(c *ui.Context, children func()) {
-	ui.Grid(c).Columns(chipColumns(c)).Gap(8).Children(children)
+	g := ui.Grid(c)
+	room := g.Bounds().W
+	if room <= 0 {
+		w, _ := c.Size()
+		room = w * 0.6
+	}
+	g.Columns(chipColumns(room)).Gap(8).Children(children)
 }
 
 func (a *app) autoChip(c *ui.Context, on bool, pick func(string)) {

@@ -14,6 +14,7 @@ type Step struct {
 	Route     string // for "block": the route it was written for, which has no node
 	Guard     string // for "block": the route whose noudp or noipv6 made it
 	Label     string // the group it comes from, or the heading above it in the rules text
+	Group     string // the group (application) it comes from, "" for the rules text
 	Line      int    // its line in the rules text; 0 or less for a group's
 	Network   string
 	IPVersion int
@@ -47,7 +48,8 @@ func (e *Engine) Order() []Step {
 			s.Label = r.Guard + " 的守卫"
 		} else if r.Line <= 0 {
 			if k := r.Line + len(owners) - 1; k >= 0 && k < len(owners) {
-				s.Label = "分组 · " + active[owners[k]].Name
+				s.Group = active[owners[k]].Name
+				s.Label = "分组 · " + s.Group
 			}
 		} else if r.Line-1 < len(headings) {
 			s.Label = headings[r.Line-1]
