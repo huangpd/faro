@@ -9,8 +9,8 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
 
 ## Routes: groups of nodes that a rule can send traffic to
 
-    route <id> region <XX> [fast] [gate] [ipv4] [exit:<range>]
-    route <id> regex "<expression>" [fast] [gate] [ipv4] [exit:<range>]
+    route <id> region <XX> [fast] [gate] [ipv4] [exit:<range>] [check:<time>] [hours:<from>-<to>]
+    route <id> regex "<expression>" [fast] [gate] [ipv4] [exit:<range>] [check:<time>] [hours:<from>-<to>]
     route <id> like <other-route>
 
 - <id>: lower-case letters, digits and '-', starting with a letter. Not one of
@@ -30,6 +30,11 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
 - `exit:<range>` (e.g. exit:198.51.100.0/24; several allowed) is where the route may
   leave from: the address the world sees is checked while it runs, and the route is
   cut when it is another, or cannot be told. It implies `gate`.
+- `check:<time>` (e.g. check:5m; at least 10s; 2m when not given) is how often
+  the exit is checked, and `hours:<from>-<to>` (e.g. hours:09:00-23:30, may cross
+  midnight) the part of the day it is checked on that timer; outside it the route
+  keeps what its last check said. It is always checked when the core starts and
+  when its node changes. Both need `exit:`.
 - A route is strict: if no node matches, what is sent to it is BLOCKED, never sent
   out through another country's node. Do not add fallbacks.
 

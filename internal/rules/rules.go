@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The built-in targets, and the prefix of the groups made for routes.
@@ -59,10 +60,16 @@ type Route struct {
 	// Exit is the addresses the route may leave from, as address ranges: the
 	// address the world sees is checked, and a route that leaves from another
 	// is cut. Empty is no check.
-	Exit  []string
-	Like  string // the route whose node this one uses, for Kind "like"
-	Line  int
-	Nodes []string
+	Exit []string
+	// CheckEvery is how often the exit is checked, 0 for DefaultCheckEvery;
+	// Hours the part of the day it is checked on that timer ("09:00-23:30",
+	// which may cross midnight), "" for all day. Outside those hours the route
+	// keeps what its last check said. Both need Exit.
+	CheckEvery time.Duration
+	Hours      string
+	Like       string // the route whose node this one uses, for Kind "like"
+	Line       int
+	Nodes      []string
 	// Chosen is the node the group is on, "" for the fastest of a Fast
 	// route. Warn says why not the one the user picked, when that is gone.
 	Chosen string
@@ -454,10 +461,77 @@ func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
 				r.Gate = true // a route that is checked is cut by the check: it has a gate
 				continue
 			}
-			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4, exit:<address range>", mod)
+			if v, ok := strings.CutPrefix(mod, "check:"); ok {
+				d, err := time.ParseDuration(v)
+				if err != nil || d < MinCheckEvery {
+					return nil, fmt.Sprintf("check:%s: expected a time of at least 10s, as 30s, 2m or 1h", v)
+				}
+				r.CheckEvery = d
+				continue
+			}
+			if v, ok := strings.CutPrefix(mod, "hours:"); ok {
+				if _, _, ok := parseHours(v); !ok {
+					return nil, fmt.Sprintf("hours:%s: expected a part of the day, as 09:00-23:30", v)
+				}
+				r.Hours = v
+				continue
+			}
+			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4, exit:<address range>, check:<time>, hours:<from>-<to>", mod)
 		}
 	}
+	if (r.CheckEvery != 0 || r.Hours != "") && len(r.Exit) == 0 {
+		return nil, "check: and hours: say when the exit is checked: they need exit:<range>"
+	}
 	return r, ""
+}
+
+// DefaultCheckEvery is how often an exit is checked when check: is not given,
+// and MinCheckEvery the least that may be given.
+const (
+	DefaultCheckEvery = 2 * time.Minute
+	MinCheckEvery     = 10 * time.Second
+)
+
+// Every is how often the route's exit is checked.
+func (r Route) Every() time.Duration {
+	if r.CheckEvery == 0 {
+		return DefaultCheckEvery
+	}
+	return r.CheckEvery
+}
+
+// InHours says whether t is in the part of the day the exit is checked on its timer.
+func (r Route) InHours(t time.Time) bool {
+	from, to, ok := parseHours(r.Hours)
+	if !ok {
+		return true
+	}
+	m := t.Hour()*60 + t.Minute()
+	if from <= to {
+		return m >= from && m < to
+	}
+	return m >= from || m < to // across midnight
+}
+
+// parseHours reads "HH:MM-HH:MM" as minutes of the day; the two must differ.
+func parseHours(s string) (from, to int, ok bool) {
+	a, b, found := strings.Cut(s, "-")
+	if !found {
+		return 0, 0, false
+	}
+	clock := func(v string) (int, bool) {
+		if v == "24:00" {
+			return 24 * 60, true
+		}
+		t, err := time.Parse("15:04", v)
+		if err != nil {
+			return 0, false
+		}
+		return t.Hour()*60 + t.Minute(), true
+	}
+	from, ok1 := clock(a)
+	to, ok2 := clock(b)
+	return from, to, ok1 && ok2 && from != to
 }
 
 // exitRange reads an address range, "198.51.100.0/24", or an address alone.

@@ -17,7 +17,7 @@ import (
 // A route may say where it is allowed to leave from (exit:<range>). While the
 // core runs, the address the world sees of the route is asked for, through an
 // entrance of the route's own that goes out by its node even while it is cut,
-// at the start, when its node is changed, and every few minutes. The route
+// at the start, when its node is changed, and on its own timer. The route
 // starts cut; it is opened when it is seen to leave from one of its ranges, and
 // cut again when it leaves from another, or cannot be told. A route the person
 // cut stays cut.
@@ -47,62 +47,62 @@ func (e *Engine) kickExits() {
 	}
 }
 
-// watchExits checks the run's routes now, then as asked, and on a timer whose
-// interval and hours are set in prefs.json (exitCheck), until the run ends. The
-// setting is read again after each wait, so a change counts at the next one.
+// exitTick is how often the watcher looks at which exits are due.
+const exitTick = 5 * time.Second
+
+// watchExits checks the run's routes now, then each on its own timer (check:
+// and hours: on its route line), and all of them when asked, until the run ends.
 func (e *Engine) watchExits(ctx context.Context, g int) {
-	check := true
+	all := true
 	for {
 		if !e.current(g) {
 			return
 		}
-		if check {
-			e.checkExits(ctx, g)
+		e.checkExits(ctx, g, all)
+		tick := exitTick
+		if e.opts.ExitEvery != 0 && e.opts.ExitEvery < tick {
+			tick = e.opts.ExitEvery
 		}
-		every, inHours := e.exitSchedule()
-		tick := time.NewTimer(every)
+		t := time.NewTimer(tick)
 		select {
 		case <-ctx.Done():
-			tick.Stop()
+			t.Stop()
 			return
 		case <-e.quit:
-			tick.Stop()
+			t.Stop()
 			return
-		case <-tick.C:
-			check = inHours(e.opts.Now())
+		case <-t.C:
+			all = false
 		case <-e.exitKick:
-			tick.Stop()
-			check = true // asked for: the start, a new node; always, whatever the hours
+			t.Stop()
+			all = true // asked for: the start, a new node; always, whatever the hours
 		}
 	}
 }
 
-// exitSchedule is how often the exits are checked, and in which hours: the
-// test's own interval if it set one, else what prefs.json says.
-func (e *Engine) exitSchedule() (time.Duration, func(time.Time) bool) {
+// due says whether a route's exit is to be checked now: never checked, or its
+// time has come within its hours.
+func (e *Engine) due(r rules.Route, now time.Time) bool {
+	last := e.exits[r.ID].At
+	if last.IsZero() {
+		return true
+	}
+	every := r.Every()
 	if e.opts.ExitEvery != 0 {
-		return e.opts.ExitEvery, func(time.Time) bool { return true }
+		every = e.opts.ExitEvery
 	}
-	e.mu.Lock()
-	x, err := e.prefs.ReloadExitCheck()
-	e.mu.Unlock()
-	every, inHours, perr := x.Schedule()
-	if err == nil {
-		err = perr
-	}
-	if err != nil {
-		e.fail(fmt.Errorf("prefs.json: %w", err))
-	}
-	return every, inHours
+	return now.Sub(last) >= every && r.InHours(now)
 }
 
-// checkExits asks each checked route where it leaves from, and opens or cuts it.
-func (e *Engine) checkExits(ctx context.Context, g int) {
+// checkExits asks the checked routes that are due (all of them, with all) where
+// they leave from, and opens or cuts each.
+func (e *Engine) checkExits(ctx context.Context, g int, all bool) {
 	e.mu.Lock()
 	var todo []rules.Route
+	now := e.opts.Now()
 	if e.plan != nil {
 		for _, r := range e.plan.Routes {
-			if len(r.Exit) > 0 && len(r.Nodes) > 0 {
+			if len(r.Exit) > 0 && len(r.Nodes) > 0 && (all || e.due(r, now)) {
 				todo = append(todo, r)
 				c := e.exits[r.ID]
 				c.Checking = true

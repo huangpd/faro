@@ -4,6 +4,7 @@ import (
 	"faro/internal/fixtures"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRegionStrict(t *testing.T) {
@@ -528,6 +529,35 @@ func TestExitRangesOfARoute(t *testing.T) {
 	for _, bad := range []string{"exit:", "exit:198.51.100", "exit:example.com", "exit:1.2.3.4/40"} {
 		if _, errs := Compile("route w region UK "+bad+"\n", []string{"UK 1"}, nil); errs == nil {
 			t.Errorf("%q was taken", bad)
+		}
+	}
+}
+
+func TestWhenAnExitIsChecked(t *testing.T) {
+	p, errs := Compile("route a region UK exit:198.51.100.0/24 check:5m hours:22:00-06:00\nroute b region UK exit:1.2.3.4\n", []string{"UK 1"}, nil)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	a, b := p.Routes[0], p.Routes[1]
+	if a.Every() != 5*time.Minute || b.Every() != DefaultCheckEvery {
+		t.Errorf("every %v %v", a.Every(), b.Every())
+	}
+	at := func(h, m int) time.Time { return time.Date(2026, 1, 1, h, m, 0, 0, time.Local) }
+	if !a.InHours(at(23, 0)) || !a.InHours(at(5, 59)) || a.InHours(at(6, 0)) || a.InHours(at(12, 0)) {
+		t.Error("hours across midnight read wrong")
+	}
+	if !b.InHours(at(3, 0)) {
+		t.Error("no hours is all day")
+	}
+	for _, bad := range []string{
+		"route a region UK check:5m",                       // no exit to check
+		"route a region UK exit:1.2.3.4 check:1s",          // too often
+		"route a region UK exit:1.2.3.4 check:often",       // not a time
+		"route a region UK exit:1.2.3.4 hours:morning",     // not hours
+		"route a region UK exit:1.2.3.4 hours:09:00-09:00", // no time at all
+	} {
+		if _, errs := Compile(bad+"\n", []string{"UK 1"}, nil); errs == nil {
+			t.Errorf("accepted %q", bad)
 		}
 	}
 }

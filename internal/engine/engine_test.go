@@ -1161,3 +1161,29 @@ func TestARouteIsOpenOnlyWhileItLeavesFromItsExit(t *testing.T) {
 	e.kickExits()
 	waitFor(t, "opened by the check", func() bool { return now("route-work") == "🇬🇧 London 02" })
 }
+
+// Each route's exit is checked on its own timer, and only within its hours.
+func TestAnExitIsDueByItsOwnTimer(t *testing.T) {
+	p, errs := rules.Compile("route a region UK exit:1.2.3.4 check:5m hours:09:00-18:00\nroute b region UK exit:1.2.3.4\n", []string{"UK 1"}, nil)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	a, b := p.Routes[0], p.Routes[1]
+	noon := time.Date(2026, 1, 1, 12, 0, 0, 0, time.Local)
+	e := &Engine{exits: map[string]ExitCheck{}}
+	if !e.due(a, noon) {
+		t.Error("never checked, and not due")
+	}
+	e.exits["a"] = ExitCheck{At: noon}
+	e.exits["b"] = ExitCheck{At: noon}
+	if e.due(a, noon.Add(4*time.Minute)) || !e.due(a, noon.Add(5*time.Minute)) {
+		t.Error("a: not on its 5 minutes")
+	}
+	if e.due(b, noon.Add(time.Minute)) || !e.due(b, noon.Add(2*time.Minute)) {
+		t.Error("b: not on the default 2 minutes")
+	}
+	e.exits["a"] = ExitCheck{At: noon.Add(7 * time.Hour)}
+	if e.due(a, noon.Add(8*time.Hour)) {
+		t.Error("a was due at 20:00, outside its hours")
+	}
+}
