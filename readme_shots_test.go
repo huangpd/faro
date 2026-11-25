@@ -14,9 +14,11 @@ import (
 	"faro/internal/engine"
 )
 
-// The README's screenshots, from made-up data: example nodes, an example exit
-// range (198.51.100.0/24 is for documentation), and an exit check and timings
-// that are made up here. Off unless asked:
+// Screenshots like the README's, from made-up data: example nodes, an example
+// exit range (198.51.100.0/24 is for documentation), and an exit check and
+// timings made up here; light, at twice the points, as a Retina screen shows
+// them. (The README's own are of a real setup, its exit range and address
+// replaced by these examples.) Off unless asked:
 //
 //	FARO_SHOTS=docs/screenshots go test -run ReadmeShots
 func TestReadmeShots(t *testing.T) {
@@ -85,6 +87,7 @@ google domain:youtube.com
 	shot := func(name string, w, h int, dark bool, set func()) {
 		set()
 		tt := ui.NewTester(a.view, w, h)
+		tt.SetScale(2)
 		tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 76})
 		tt.SetDark(dark)
 		tt.Frame()
@@ -96,15 +99,14 @@ google domain:youtube.com
 		png.Encode(f, tt.Image())
 		f.Close()
 	}
-	shot("now-dark", 1100, 760, true, func() { a.setPage(pageNow) })
-	shot("now-light", 1100, 760, false, func() { a.setPage(pageNow) })
+	shot("now", 1180, 820, false, func() { a.setPage(pageNow) })
 	shot("exits", 1100, 1000, false, func() {
 		a.setPage(pageRules)
 		a.rulesTab = tabExits
 		a.exitOpen["claude"], a.exitOpen["openai"] = true, true
 		a.startExitEdit(eng.State(), "claude")
 	})
-	shot("library", 1100, 860, true, func() {
+	shot("library", 1100, 860, false, func() {
 		a.setPage(pageRules)
 		a.rulesTab = tabExits
 		delete(a.exitEdit, "claude")

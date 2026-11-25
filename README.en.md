@@ -4,7 +4,7 @@
 
 [简体中文](README.md) · [English](README.en.md)
 
-![Now: where each exit leaves from](docs/screenshots/now-dark.png)
+![Now: where each exit leaves from](docs/screenshots/now.png)
 
 > The interface is in Chinese for now.
 

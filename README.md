@@ -4,7 +4,7 @@
 
 [简体中文](README.md) · [English](README.en.md)
 
-![现在：每条出口从哪里出去](docs/screenshots/now-dark.png)
+![现在：每条出口从哪里出去](docs/screenshots/now.png)
 
 ## 为什么需要它
 
