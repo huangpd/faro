@@ -52,7 +52,7 @@ func TestEveryExampleInTheSpecCompiles(t *testing.T) {
 		t.Errorf("the examples together: %v", errs)
 	}
 	for i, b := range blocks {
-		if strings.Contains(b, "route mirror like work") || strings.Contains(b, "work process:") {
+		if strings.Contains(b, "work process:") {
 			continue // these refer to a route another example defines
 		}
 		if _, errs := rules.Compile(b, nodes, nil); errs != nil {
@@ -80,7 +80,7 @@ func TestSpecNamesEveryKindFlagAndOption(t *testing.T) {
 			t.Errorf("%s%s: %v", kind, val, errs)
 		}
 	}
-	for _, w := range []string{"udp", "tcp", "ipv4", "ipv6", "fast", "gate", "like", "regex", "region", "proxy", "auto", "direct", "block"} {
+	for _, w := range []string{"udp", "tcp", "ipv4", "ipv6", "fast", "gate", "regex", "region", "proxy", "auto", "direct", "block"} {
 		if !regexp.MustCompile(`\b` + w + `\b`).MatchString(Spec()) {
 			t.Errorf("the spec does not mention %q", w)
 		}
@@ -100,7 +100,7 @@ func TestPromptCarriesTheLanguageTheSetupAndAPlaceForTheRequest(t *testing.T) {
 		"Faro 规则语法", "route <id> region <XX>", "FIRST that matches decides", // the language
 		"可用的地区:", "UK", "DE", // what it knows
 		"Rule sets（set: 只能用这些，不要自己编）: geosite-cn geoip-cn",
-		"route claude region UK gate ipv4", "route openai like claude", "route google region DE", // their routes
+		"route claude region UK gate ipv4", "route openai region UK gate ipv4", "route google region DE", // their routes
 		"🇬🇧 London 01", "🇯🇵 Tokyo 01", // node names
 		"我现在的规则文本", "我的需求", // where the person writes
 		"只输出规则文本",

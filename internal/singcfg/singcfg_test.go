@@ -238,14 +238,9 @@ func TestDefaultRulesPassCheck(t *testing.T) {
 		if claude["default"] != wantDef {
 			t.Errorf("%s: claude default %v, want %v", name, claude["default"], wantDef)
 		}
-		// The follower is on the same node whatever the gate does, and has no gate choice.
-		if openai["default"] != "🇬🇧 London 02" {
-			t.Errorf("%s: openai default %v", name, openai["default"])
-		}
-		for _, o := range openai["outbounds"].([]any) {
-			if o == "block" {
-				t.Errorf("%s: openai has a gate", name)
-			}
+		// openai is a route of its own, with its own gate.
+		if !strings.Contains(fmt.Sprint(openai["outbounds"]), "block") {
+			t.Errorf("%s: openai has no gate", name)
 		}
 		if g := google["outbounds"].([]any); len(g) != 1 {
 			t.Errorf("%s: google outbounds %v", name, g)

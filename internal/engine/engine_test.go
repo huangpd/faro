@@ -274,18 +274,12 @@ func TestChooseAndGateReachTheRunningCore(t *testing.T) {
 
 	e.Choose("claude", "🇬🇧 London 02")
 	waitFor(t, "the node", func() bool { return now("route-claude") == "🇬🇧 London 02" })
-	if now("route-openai") != "🇬🇧 London 02" {
-		t.Errorf("the follower is on %q", now("route-openai"))
-	}
 	if e.State().Choices["claude"] != "🇬🇧 London 02" {
 		t.Error("the choice is not in the state")
 	}
 
 	e.SetGate("claude", true)
 	waitFor(t, "the gate", func() bool { return now("route-claude") == "block" })
-	if now("route-openai") != "🇬🇧 London 02" {
-		t.Error("the follower was cut with the gate")
-	}
 	// Choosing while the gate is shut keeps it shut.
 	e.Choose("claude", "🇬🇧 London 01")
 	time.Sleep(300 * time.Millisecond)

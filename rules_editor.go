@@ -19,7 +19,7 @@ var rulesLanguage = &editor.Language{
 
 var (
 	ruleStatements = map[string]bool{"route": true, "region": true, "notice": true}
-	ruleHow        = map[string]bool{"region": true, "like": true, "regex": true}
+	ruleHow        = map[string]bool{"region": true, "regex": true}
 	ruleFlags      = map[string]bool{"udp": true, "tcp": true, "ipv4": true, "ipv6": true, "fast": true, "gate": true}
 )
 

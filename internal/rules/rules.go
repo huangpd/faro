@@ -6,7 +6,6 @@
 //	route work region UK gate ipv4     a group of the UK nodes, held on one node,
 //	                                   with a gate that can cut it, dialling IPv4
 //	route eu region DE fast            the same, on the fastest of them
-//	route mirror like work             the same node as another route, no gate of its own
 //	route work   regex "(?i)^corp"     nodes whose name matches
 //	work domain:example.com            send this to the route
 //	block udp domain:example.com       a flag and a matcher; UDP only
@@ -52,8 +51,8 @@ const (
 // Route is a named group of nodes.
 type Route struct {
 	ID   string
-	Kind string // "region", "regex" or "like"
-	Arg  string // the region id, the regular expression, or the route followed
+	Kind string // "region" or "regex"
+	Arg  string // the region id, or the regular expression
 	Fast bool   // follow the fastest node, rather than hold one
 	Gate bool   // the group has a way to cut it: GateTag
 	IPv4 bool   // its traffic leaves its nodes over IPv4 only
@@ -71,7 +70,6 @@ type Route struct {
 	// keeps what its last check said. Both need Exit.
 	CheckEvery time.Duration
 	Hours      string
-	Like       string // the route whose node this one uses, for Kind "like"
 	Line       int
 	Nodes      []string
 	// Chosen is the node the group is on, "" for the fastest of a Fast
@@ -256,40 +254,12 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 		lines = append(lines, pending{n, rule})
 	}
 
-	// A route that follows another must name one that exists, and not
-	// another follower.
-	for _, id := range order {
-		r := routes[id]
-		if r.Kind != "like" {
-			continue
-		}
-		lead := routes[r.Like]
-		switch {
-		case lead == nil:
-			errs = append(errs, Error{r.Line, fmt.Sprintf("route %s: follows %q, which is not defined", id, r.Like)})
-		case lead.Kind == "like":
-			errs = append(errs, Error{r.Line, fmt.Sprintf("route %s: %q follows another route; follow that one instead", id, r.Like)})
-		}
-	}
-
-	// The routes, with their nodes: leaders first, then those that follow.
+	// The routes, with their nodes.
 	sort.Strings(order)
 	for _, id := range order {
 		r := routes[id]
-		if r.Kind == "like" {
-			continue
-		}
 		r.Nodes = match(r, tags, d)
 		r.Chosen, r.Warn = pick(r, choices[id])
-	}
-	for _, id := range order {
-		r := routes[id]
-		if r.Kind != "like" {
-			continue
-		}
-		if lead := routes[r.Like]; lead != nil && lead.Kind != "like" {
-			r.Nodes, r.Chosen, r.Warn, r.Fast = lead.Nodes, lead.Chosen, lead.Warn, lead.Fast
-		}
 	}
 	for _, id := range order {
 		r := routes[id]
@@ -297,7 +267,7 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 		switch {
 		case len(r.Nodes) == 0:
 			p.Warnings = append(p.Warnings, fmt.Sprintf("route %s: no node matches %s, so what is sent to it is blocked", id, r.describe()))
-		case r.Warn != "" && r.Kind != "like":
+		case r.Warn != "":
 			p.Warnings = append(p.Warnings, fmt.Sprintf("route %s: %s", id, r.Warn))
 		}
 		if r.Closed {
@@ -385,12 +355,7 @@ func mergeable(a, b Rule) bool {
 		len(a.Matchers) == 1 && len(b.Matchers) == 1 && a.Matchers[0].Kind == b.Matchers[0].Kind
 }
 
-func (r Route) describe() string {
-	if r.Kind == "like" {
-		return "what " + r.Like + " uses"
-	}
-	return r.Arg
-}
+func (r Route) describe() string { return r.Arg }
 
 func parseRule(f []string, line int) (Rule, string) {
 	r := Rule{Target: f[0], Line: line}
@@ -455,7 +420,7 @@ func parseRule(f []string, line int) (Rule, string) {
 }
 
 func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
-	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>]  |  route <id> regex <expression> [...]  |  route <id> like <route>"
+	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>]  |  route <id> regex <expression> [...]"
 	if len(f) < 3 {
 		return nil, usage
 	}
@@ -481,19 +446,13 @@ func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
 			return nil, "bad regular expression: " + err.Error()
 		}
 	case "like":
-		r.Like, r.Arg = f[2], f[2]
-		if r.Like == id {
-			return nil, "a route cannot follow itself"
-		}
+		return nil, "'like' is gone: give the route its own region or regex, the same as the other route's"
 	default:
-		return nil, fmt.Sprintf("route kind %q: use region, regex or like", f[1])
+		return nil, fmt.Sprintf("route kind %q: use region or regex", f[1])
 	}
 	for _, mod := range f[3:] {
 		switch mod {
 		case "fast":
-			if r.Kind == "like" {
-				return nil, "a route that follows another goes where it goes: no 'fast'"
-			}
 			r.Fast = true
 		case "gate":
 			r.Gate = true

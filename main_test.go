@@ -166,7 +166,7 @@ func TestLanesShowWhereEachKindLeavesFrom(t *testing.T) {
 	withNodes(t, a, "🇬🇧 London 01", "🇬🇧 London 02", "Ukraine 01", "🇺🇸 LA 01")
 	usePreset(t, a, "ai-accounts")
 	tt := view(a)
-	need(t, tt, "claude", "google", "openai", "proxy", "UK 节点 · 2 个", "与 claude 同一出口", "放行", "IPv4",
+	need(t, tt, "claude", "google", "openai", "proxy", "UK 节点 · 2 个", "放行", "IPv4",
 		"没有符合的节点，发往它的流量会被阻断，不会换别的出口")
 	// A route with no node is blocked, and says so; it has no gate to offer.
 	if tt.HasText("放行 google") {
@@ -193,12 +193,6 @@ func TestPickingANodeOnALane(t *testing.T) {
 	}
 	if got := a.eng.State().Choices["claude"]; got != "🇬🇧 London 02" {
 		t.Fatalf("chose %q", got)
-	}
-	// The follower is on the same node.
-	for _, r := range a.eng.State().Plan.Routes {
-		if r.ID == "openai" && r.Chosen != "🇬🇧 London 02" {
-			t.Errorf("openai on %q", r.Chosen)
-		}
 	}
 }
 
@@ -437,7 +431,7 @@ func TestTrayMenuWithNodes(t *testing.T) {
 	if cut == nil || cut.Type != mygo.MenuItemCheckbox || cut.Checked {
 		t.Fatalf("gate item %+v", cut)
 	}
-	if find(items, "切断 openai") != nil || find(items, "切断 google") != nil {
+	if find(items, "切断 google") != nil {
 		t.Error("a gate for a route that has none")
 	}
 	claude := find(items, "claude · 🇬🇧 London 02")
@@ -451,9 +445,6 @@ func TestTrayMenuWithNodes(t *testing.T) {
 	}
 	if find(items, "google · 🇩🇪 Frankfurt 01") == nil {
 		t.Errorf("google submenu missing: %v", labels(items))
-	}
-	if find(items, "openai") != nil {
-		t.Error("openai follows claude: it has no menu of its own")
 	}
 	rest := find(items, "proxy · 自动")
 	if rest == nil || !rest.Submenu[0].Checked || rest.Submenu[0].Label != "自动" {

@@ -315,19 +315,6 @@ func (r *routingRig) selectIn(group, choice string) {
 	}
 }
 
-func TestOpenAIFollowsClaudeNode(t *testing.T) {
-	tags := []string{"UK 01", "UK 02", "DE 01"}
-	r := newRig(t, fixtures.AIAccounts(), tags, map[string]string{"claude": "UK 02"})
-	for _, h := range []string{"api.openai.com", "chatgpt.com", "api.ipify.org"} {
-		r.expect(h, "UK 02") // the node Claude is on, not the first UK node
-	}
-	r.expect("claude.ai", "UK 02")
-	// All of Google is German, not only Gemini.
-	for _, h := range []string{"www.google.com", "accounts.google.com", "www.gstatic.com", "gemini.google.com"} {
-		r.expect(h, "DE 01")
-	}
-}
-
 func TestGateCutsClaudeAndOpensAgain(t *testing.T) {
 	tags := []string{"UK 01", "DE 01"}
 

@@ -535,7 +535,7 @@ func (e *Engine) Choose(route, tag string) {
 		todo = []sel{{singcfg.TagProxy, name}}
 	} else if e.plan != nil {
 		for _, r := range e.plan.Routes {
-			if r.ID != route && !(r.Kind == "like" && r.Like == route) {
+			if r.ID != route {
 				continue
 			}
 			if len(r.Exit) > 0 {

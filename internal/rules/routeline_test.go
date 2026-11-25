@@ -3,7 +3,7 @@ package rules
 import "testing"
 
 func TestARouteLineIsChangedInPlace(t *testing.T) {
-	text := "# top\nroute claude regex \"^英国-UK-1-\" gate ipv4 exit:198.51.100.0/24 # mine\nroute openai like claude gate ipv4\nclaude domain:claude.ai\n"
+	text := "# top\nroute claude regex \"^英国-UK-1-\" gate ipv4 exit:198.51.100.0/24 # mine\nroute openai region UK gate ipv4\nclaude domain:claude.ai\n"
 	rl, ok := ReadRoute(text, "claude")
 	if !ok || rl.Kind != "regex" || rl.Arg != "^英国-UK-1-" || !rl.Gate || !rl.IPv4 || len(rl.Exit) != 1 {
 		t.Fatalf("%+v %v", rl, ok)
@@ -15,7 +15,7 @@ func TestARouteLineIsChangedInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# top\nroute claude regex \"^英国-UK-(1|2)-\\d\" gate ipv4 exit:198.51.100.0/24 exit:203.0.113.0/24 check:5m hours:09:00-23:30 # mine\nroute openai like claude gate ipv4\nclaude domain:claude.ai\n"
+	want := "# top\nroute claude regex \"^英国-UK-(1|2)-\\d\" gate ipv4 exit:198.51.100.0/24 exit:203.0.113.0/24 check:5m hours:09:00-23:30 # mine\nroute openai region UK gate ipv4\nclaude domain:claude.ai\n"
 	if out != want {
 		t.Errorf("got\n%s\nwant\n%s", out, want)
 	}

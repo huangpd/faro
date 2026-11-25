@@ -17,7 +17,7 @@ func menuSignature(st engine.State) string {
 	fmt.Fprintf(&b, "%s|%s|%v|%v|", st.Status, st.Version, st.SystemProxy, st.LightMode)
 	if st.Plan != nil {
 		for _, r := range st.Plan.Routes {
-			fmt.Fprintf(&b, "%s,%v,%v,%q,%s,%s;", r.ID, r.Gate, r.Closed, r.Chosen, r.Like, strings.Join(r.Nodes, ","))
+			fmt.Fprintf(&b, "%s,%v,%v,%q,%s;", r.ID, r.Gate, r.Closed, r.Chosen, strings.Join(r.Nodes, ","))
 		}
 	}
 	fmt.Fprintf(&b, "|%q|", st.Choices[singcfg.TagProxy])
@@ -74,7 +74,7 @@ func (a *app) trayItems(st engine.State) []*mygo.MenuItem {
 	var nodes []*mygo.MenuItem
 	if routes != nil {
 		for _, r := range routes.Routes {
-			if r.Kind == "like" || len(r.Nodes) == 0 {
+			if len(r.Nodes) == 0 {
 				continue
 			}
 			id := r.ID

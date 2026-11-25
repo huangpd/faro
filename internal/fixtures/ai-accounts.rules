@@ -1,8 +1,8 @@
 # preset: AI 账号
-# about: 让对地区敏感的账号固定在一个出口：Claude 走英国节点并带熔断门，OpenAI 跟随同一节点，整个 Google 走德国节点；到 Claude 的 UDP 和 IPv6 一律阻断。
+# about: 让对地区敏感的账号固定在一个出口：Claude 走英国节点并带熔断门，OpenAI 用同一地区的节点，整个 Google 走德国节点；到 Claude 的 UDP 和 IPv6 一律阻断。
 
 route claude region UK gate ipv4
-route openai like claude
+route openai region UK gate ipv4
 route google region DE
 
 # ---- Claude: never by UDP (QUIC), never by IPv6 -----------------------------

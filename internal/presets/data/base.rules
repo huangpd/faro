@@ -9,7 +9,6 @@
 #                                                  ipv4  it leaves its nodes over IPv4 only
 #                                                  exit:<range>  the addresses it may leave
 #                                                        from, checked; cut when not
-#   route <id> like <route>                        the same node as another route
 #   route <id> regex "<expression>"                nodes whose name matches
 #
 #   <target> [flags] <kind>:<value> ...            target: a route, proxy, auto, direct, block

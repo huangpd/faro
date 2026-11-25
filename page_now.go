@@ -164,8 +164,6 @@ func laneKind(r rules.Route) string {
 	switch r.Kind {
 	case "region":
 		return fmt.Sprintf("%s 节点 · %d 个", r.Arg, len(r.Nodes))
-	case "like":
-		return "与 " + r.Like + " 同一出口"
 	}
 	return fmt.Sprintf("%d 个节点", len(r.Nodes))
 }
@@ -207,14 +205,12 @@ func (a *app) laneExit(c *ui.Context, st engine.State, r rules.Route) {
 			a.pill(c, "已切断", a.k.danger)
 		}
 		ui.Spacer(c)
-		if r.Kind != "like" {
-			label := "更换"
-			if a.expanded[r.ID] {
-				label = "收起"
-			}
-			if a.button(c, btnGhost, "", label).Clicked() {
-				a.expanded[r.ID] = !a.expanded[r.ID]
-			}
+		label := "更换"
+		if a.expanded[r.ID] {
+			label = "收起"
+		}
+		if a.button(c, btnGhost, "", label).Clicked() {
+			a.expanded[r.ID] = !a.expanded[r.ID]
 		}
 	})
 }

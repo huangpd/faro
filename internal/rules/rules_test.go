@@ -97,8 +97,8 @@ func TestCompileDefault(t *testing.T) {
 	if !uk.Gate || !uk.IPv4 || uk.Closed {
 		t.Errorf("claude should have an open gate and ipv4: %+v", uk)
 	}
-	// OpenAI follows Claude's node, with no gate of its own.
-	if o := routes["openai"]; o.Chosen != uk.Chosen || o.Gate || strings.Join(o.Nodes, "|") != strings.Join(uk.Nodes, "|") {
+	// OpenAI is a UK route of its own, with its own gate.
+	if o := routes["openai"]; o.Kind != "region" || !o.Gate || strings.Join(o.Nodes, "|") != strings.Join(uk.Nodes, "|") {
 		t.Errorf("openai %+v", o)
 	}
 	// All of Google from Germany.
@@ -284,8 +284,8 @@ c ipv6 cidr:2607:6bc0::/32
 	}
 }
 
-func TestGateAndFollowers(t *testing.T) {
-	text := "route claude region UK gate ipv4\nroute openai like claude\nclaude domain:claude.ai\nopenai domain:openai.com\n"
+func TestGate(t *testing.T) {
+	text := "route claude region UK gate ipv4\nclaude domain:claude.ai\n"
 	tags := []string{"UK 02", "UK 01", "DE 01"}
 
 	p, errs := Compile(text, tags, map[string]string{"claude": "UK 02"})
@@ -299,12 +299,8 @@ func TestGateAndFollowers(t *testing.T) {
 	if r := by["claude"]; !r.Gate || r.Closed || r.Chosen != "UK 02" {
 		t.Errorf("open gate: %+v", r)
 	}
-	if r := by["openai"]; r.Chosen != "UK 02" || r.Gate {
-		t.Errorf("follower: %+v", r)
-	}
 
-	// Shut the gate: Claude's route is closed, the node choice is kept, and
-	// OpenAI, which follows the node and not the gate, is not cut.
+	// Shut the gate: the route is closed, the node choice is kept.
 	p, _ = Compile(text, tags, map[string]string{"claude": "UK 02", "claude" + GateSuffix: "closed"})
 	by = map[string]Route{}
 	for _, r := range p.Routes {
@@ -312,9 +308,6 @@ func TestGateAndFollowers(t *testing.T) {
 	}
 	if r := by["claude"]; !r.Closed || r.Chosen != "UK 02" {
 		t.Errorf("closed gate: %+v", r)
-	}
-	if by["openai"].Closed {
-		t.Error("the follower was cut by its leader's gate")
 	}
 	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "gate is closed") {
 		t.Errorf("warnings %v", p.Warnings)
@@ -328,11 +321,8 @@ func TestGateAndFollowers(t *testing.T) {
 
 func TestMoreErrors(t *testing.T) {
 	cases := map[string]string{
-		"route a like b\n": "line 1: route a: follows \"b\", which is not defined",
-		"route a region UK\nroute b like a\nroute c like b\n": "line 3: route c: \"b\" follows another route",
-		"route a like a\n":                             "a route cannot follow itself",
+		"route a like b\n":                             "'like' is gone",
 		"route a region UK fast gate bogus\n":          "unknown option \"bogus\"",
-		"route a like b fast\nroute b region UK\n":     "no 'fast'",
 		"block port:99999 domain:x.com\n":              "bad port",
 		"block set:geoip-cn set:geosite-cn domain:x\n": "both a geoip- set and another set",
 		"block process:x udp tcp\n":                    "", // flags alone are not a rule below

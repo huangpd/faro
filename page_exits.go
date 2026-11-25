@@ -214,8 +214,6 @@ func (a *app) guardPills(c *ui.Context, r rules.Route) {
 
 func (a *app) exitNode(st engine.State, r rules.Route) string {
 	switch {
-	case r.Kind == "like":
-		return "跟随 " + r.Like
 	case len(r.Nodes) == 0:
 		return "没有符合的节点"
 	case r.Chosen == "":
@@ -433,8 +431,6 @@ func (a *app) exitSettings(c *ui.Context, st engine.State, r rules.Route, d *exi
 			case "region":
 				ui.Text(c, "地区 "+d.rl.Arg).FontSize(fsBody)
 				ui.Text(c, "地区在「规则文本」里改").FontSize(fsCaption).TextColor(a.k.text2)
-			case "like":
-				ui.Text(c, "跟随 "+d.rl.Arg+"，与它同一节点").FontSize(fsBody)
 			}
 		})
 		row("守卫", func() {
@@ -464,10 +460,6 @@ func (a *app) exitSettings(c *ui.Context, st engine.State, r rules.Route, d *exi
 				ui.Text(c, "规则文本里另有阻断行").FontSize(fsCaption).TextColor(a.k.text2).Tooltip("开关只管这条出口自己生成的阻断；规则文本里写的阻断行照样生效")
 			}
 		})
-		if d.rl.Kind == "like" {
-			a.exitSettingsFoot(c, r, d)
-			return
-		}
 		ui.Divider(c)
 		row("出口范围", func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Wrap().Grow(1).Children(func() {

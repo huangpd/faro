@@ -11,7 +11,6 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
 
     route <id> region <XX> [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>] [check:<time>] [hours:<from>-<to>]
     route <id> regex "<expression>" [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>] [check:<time>] [hours:<from>-<to>]
-    route <id> like <other-route>
 
 - <id>: lower-case letters, digits and '-', starting with a letter. Not one of
   proxy, auto, direct, block (those are built in).
@@ -19,8 +18,8 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
   are listed in the context below; a new one is defined with
   `region <ID> flag:<emoji> name:<text> code:<XX>` (several name:/code: allowed).
 - regex "<expression>": the nodes whose name matches a regular expression.
-- like <other-route>: the same node as another route (chosen together with it),
-  but without a gate of its own.
+- Two routes that must leave by the same node are each given the same region or
+  regex (there is no route that follows another).
 - A route is held on ONE node, so that the exit address stays the same. `fast`
   makes it follow the fastest node of the group instead.
 - `gate` adds a switch the user can flip to cut the route: while cut, nothing sent
@@ -81,11 +80,6 @@ A service from Germany, on the fastest German node, over IPv4 only:
 
     route streaming region DE fast ipv4
     streaming domain:stream.example.com domain:cdn.stream.example.com
-
-A second service that uses the same node as the first, without its own gate:
-
-    route mirror like work
-    mirror domain:mirror.example.com
 
 Block QUIC (UDP) to a service, and a program's traffic from this Mac:
 

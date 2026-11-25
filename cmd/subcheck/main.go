@@ -133,10 +133,8 @@ func main() {
 			fmt.Printf("  starts on: %s", on)
 		}
 		fmt.Println()
-		if r.Kind != "like" {
-			for _, n := range r.Nodes {
-				fmt.Printf("      · %s\n", n)
-			}
+		for _, n := range r.Nodes {
+			fmt.Printf("      · %s\n", n)
 		}
 	}
 	for _, w := range plan.Warnings {
