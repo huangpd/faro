@@ -339,7 +339,7 @@ func (a *app) addFromConn(c *ui.Context, st engine.State, host string) {
 			}
 			if a.button(c, btnGhost, "plus", "新建分组").Clicked() {
 				a.newGroup = newGroupDraft{open: true, sites: site}
-				a.rulesTab = 0
+				a.rulesTab = tabDomains
 				a.setPage(pageRules)
 			}
 		})

@@ -47,7 +47,10 @@ type app struct {
 	expanded  map[string]bool // lanes with their nodes shown
 	rulesEdit string
 	rulesErrs []rules.Error
-	rulesTab  int // 0 the person's sites in groups, 1 the rules text
+	rulesTab  int // 0 the person's sites in groups, 1 the order the rules are checked in, 2 the rules text
+
+	orderFor string        // what the order was worked out for
+	order    []engine.Step // the rules in force, as the core checks them
 
 	rulesOpen       bool // the text is open to editing
 	showConfig      bool

@@ -23,7 +23,7 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 		if a.button(c, btnSecondary, "sparkles", "复制给 AI 的提示词").Clicked() {
 			a.copyText(c, a.aiPrompt(st), "已复制")
 		}
-		ui.Segmented(c, &a.rulesTab, "我的域名", "规则文本").Label("规则页")
+		ui.Segmented(c, &a.rulesTab, "我的域名", "最终顺序", "规则文本").Label("规则页")
 	})
 	a.errorBanner(c, st)
 	if st.Plan != nil {
@@ -35,8 +35,12 @@ func (a *app) rulesPage(c *ui.Context, st engine.State) {
 		a.banner(c, a.k.info, "shield-alert", n)
 	}
 
-	if a.rulesTab == 0 {
+	switch a.rulesTab {
+	case tabDomains:
 		a.domainsPage(c, st)
+		return
+	case tabOrder:
+		a.orderPage(c, st)
 		return
 	}
 

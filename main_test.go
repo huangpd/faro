@@ -258,7 +258,7 @@ func TestSubscriptionsPage(t *testing.T) {
 
 func TestRulesPageShowsErrorsWithLines(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = 1 // the rules text
+	a.rulesTab = tabText // the rules text
 	good := a.eng.State().RulesText
 	tt := view(a, "规则")
 	need(t, tt, "解锁编辑", "规则文本")
@@ -291,7 +291,7 @@ func TestRulesPageShowsErrorsWithLines(t *testing.T) {
 // rules page offers no ready-made setups to replace it with.
 func TestRulesPageShipsNoReadyMadeRules(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = 1 // the rules text
+	a.rulesTab = tabText // the rules text
 	if a.eng.State().RulesText != presets.Base() {
 		t.Error("a new install does not start with the base rules")
 	}
@@ -1129,7 +1129,7 @@ func TestRulesTextIsColoredByWhatEachWordIs(t *testing.T) {
 
 func TestRulesEditorKeepsTheTextAndMarksMistakes(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab, a.rulesOpen = 1, true
+	a.rulesTab, a.rulesOpen = tabText, true
 	a.rulesEdit = "route x region ZZ\nnope domain:a.com\n"
 	view(a, "规则").Click("应用")
 	view(a, "规则")
@@ -1463,4 +1463,30 @@ func TestACheckedRouteSaysWhereItLeavesFrom(t *testing.T) {
 	need(t, draw(&engine.ExitCheck{IP: "198.51.100.222", OK: true, At: time.Now()}), "198.51.100.222")
 	need(t, draw(&engine.ExitCheck{IP: "1.2.3.4", At: time.Now()}), "1.2.3.4 不在范围，已切断")
 	need(t, draw(&engine.ExitCheck{Err: "timeout", At: time.Now()}), "无法确认，已切断")
+}
+
+// The order tab lists the rules as the core checks them, and says which values
+// a rule above takes first.
+func TestOrderShowsTheRulesAndWhatIsOutOfReach(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧英国-UK-1-流量倍率:0.9", "🇩🇪德国-DE-2-流量倍率:1")
+	usePreset(t, a, "ai-accounts")
+	if err := a.eng.NewGroup("视频", "proxy", "youtube.com ytimg.com"); err != nil {
+		t.Fatal(err)
+	}
+	a.setPage(pageRules)
+	a.rulesTab = tabOrder
+	tt := ui.NewTester(a.view, 1040, 4000)
+	need(t, tt, "最终顺序", "局域网与私有地址", "分组 · 视频", "其余所有流量",
+		"ytimg.com 到不了这里：第 1 条先匹配，去了 proxy")
+	// The headings of the rules text name the steps under them.
+	if !tt.HasText("Google, Gemini, Antigravity") {
+		t.Errorf("no heading from the rules text: %q", tt.Texts())
+	}
+	// A route's own rules are not said to be out of reach by its own guards.
+	for _, s := range a.eng.Order() {
+		if s.Target == "claude" && len(s.Shadowed) > 0 {
+			t.Errorf("claude's step reported out of reach: %+v", s.Shadowed)
+		}
+	}
 }

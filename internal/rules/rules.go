@@ -88,6 +88,7 @@ type Rule struct {
 	IPVersion int    // 4, 6, or 0
 	Matchers  []Matcher
 	Line      int
+	Route     string // the route it was written for, when it blocks because that route has no node
 }
 
 // Plan is what the text says, with the nodes taken into account.
@@ -305,6 +306,7 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 				continue
 			}
 			if len(r.Nodes) == 0 {
+				rule.Route = r.ID
 				rule.Target = TargetBlock // strict: no node in the region, no way out
 			} else {
 				rule.Target = r.Group()
@@ -324,7 +326,7 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 }
 
 func mergeable(a, b Rule) bool {
-	return a.Target == b.Target && a.Network == b.Network && a.IPVersion == b.IPVersion &&
+	return a.Target == b.Target && a.Route == b.Route && a.Network == b.Network && a.IPVersion == b.IPVersion &&
 		len(a.Matchers) == 1 && len(b.Matchers) == 1 && a.Matchers[0].Kind == b.Matchers[0].Kind
 }
 

@@ -53,13 +53,16 @@ func TestSnapshots(t *testing.T) {
 	pages := []struct {
 		p    page
 		name string
-	}{{pageNow, "now"}, {pageSubs, "subs"}, {pageConns, "conns"}, {pageRules, "domains"}, {pageRules, "rules"}, {pageLogs, "logs"}, {pageSettings, "settings"}}
+	}{{pageNow, "now"}, {pageSubs, "subs"}, {pageConns, "conns"}, {pageRules, "domains"}, {pageRules, "order"}, {pageRules, "rules"}, {pageLogs, "logs"}, {pageSettings, "settings"}}
 	for _, dark := range []bool{true, false} {
 		for _, pg := range pages {
 			a.setPage(pg.p)
-			a.rulesTab = 1 // the rules text; "domains" is the other tab
-			if pg.name == "domains" {
-				a.rulesTab = 0
+			a.rulesTab = tabText // the rules text; "domains" is the other tab
+			switch pg.name {
+			case "domains":
+				a.rulesTab = tabDomains
+			case "order":
+				a.rulesTab = tabOrder
 			}
 			if pg.p == pageConns && dark {
 				// Connections that stay open while the page is drawn.
