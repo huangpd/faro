@@ -189,3 +189,31 @@ func TestMigratesTheOldDataDirectory(t *testing.T) {
 		t.Errorf("the old directory overwrote newer rules: %q", b)
 	}
 }
+
+// Stop returns even while whoever is told of the core's log does not answer:
+// on quit, that one is the main thread, waiting in Stop itself.
+func TestStopReturnsWhileTheLogListenerIsStuck(t *testing.T) {
+	bin, _ := filepath.Abs("../../bin/sing-box")
+	if _, err := os.Stat(bin); err != nil {
+		t.Skip("no bin/sing-box")
+	}
+	t.Setenv("FARO_CORE", bin)
+	t.Setenv("HOME", t.TempDir())
+	stuck := make(chan struct{})
+	defer close(stuck)
+	c, err := New("", func() { <-stuck })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Start(singcfg.Input{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second) // it has logged, and the listener holds the reader
+	returned := make(chan struct{})
+	go func() { c.Stop(); close(returned) }()
+	select {
+	case <-returned:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+}

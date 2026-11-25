@@ -1598,3 +1598,22 @@ func TestAGroupShowsAndTakesProgramsToo(t *testing.T) {
 		t.Error("a refused change was kept")
 	}
 }
+
+// The engine's notifier never waits: it posts at most one refresh at a time,
+// however often it is called, and posts again once that one has run.
+func TestNotifyingNeverWaitsAndPostsOnce(t *testing.T) {
+	var posted []func()
+	runs := 0
+	notify := coalesce(func(f func()) { posted = append(posted, f) }, func() { runs++ })
+	for i := 0; i < 100; i++ {
+		notify() // the main thread is busy: nothing runs, and nothing blocks
+	}
+	if len(posted) != 1 || runs != 0 {
+		t.Fatalf("posted %d, ran %d", len(posted), runs)
+	}
+	posted[0]()
+	notify()
+	if len(posted) != 2 || runs != 1 {
+		t.Errorf("after it ran: posted %d, ran %d", len(posted), runs)
+	}
+}

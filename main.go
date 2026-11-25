@@ -17,6 +17,7 @@ import (
 	"faro/internal/engine"
 	"faro/internal/geo"
 	"faro/internal/rules"
+	"sync/atomic"
 )
 
 // trayIcon is Faro's lighthouse as a template image: black on transparent,
@@ -104,6 +105,20 @@ func newApp(eng *engine.Engine) *app {
 	return &app{eng: eng, expanded: map[string]bool{}, exitOpen: map[string]bool{}, exitEdit: map[string]*exitDraft{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, rulesEdit: eng.State().RulesText}
 }
 
+// coalesce makes a notifier that asks post to run fn later, once for any
+// number of calls before it runs, and returns at once.
+func coalesce(post func(func()), fn func()) func() {
+	var pending atomic.Bool
+	return func() {
+		if pending.CompareAndSwap(false, true) {
+			post(func() {
+				pending.Store(false)
+				fn()
+			})
+		}
+	}
+}
+
 // refresh redraws the window, when there is one, and the menu-bar item. It
 // runs on the main thread.
 func (a *app) refresh() {
@@ -172,7 +187,9 @@ func main() {
 	res, _ := mygo.App.Path(mygo.PathResources)
 	eng, err := engine.New(engine.Options{
 		ResourcesDir: res,
-		Notify:       func() { mygo.RunOnMain(func() { a.refresh() }) },
+		// Never waits for the main thread: the core's log reader calls it, and the
+		// main thread may itself be waiting for the core to stop (on quit).
+		Notify: coalesce(mygo.App.WhenReady, func() { a.refresh() }),
 		Alert: func(title, body string) { // must be seen now: a route was cut
 			go func() { _ = mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show() }()
 		},

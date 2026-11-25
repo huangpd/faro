@@ -261,7 +261,12 @@ func (c *Core) Stop() {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		<-done
+		// Killed, it is gone; done also waits for its output to be read, and the
+		// one who stops it must not wait on that for ever.
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
 	}
 }
 
