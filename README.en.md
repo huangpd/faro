@@ -46,9 +46,13 @@ Faro is built the other way round: **it would rather cut the connection than cha
 - A button copies a prompt (the language, your exits and applications) to paste into any AI; Faro sends nothing anywhere itself.
 - Community rule sets kept current in the background; a menu bar item; a light mode that keeps only the menu bar (about 20 MB).
 
-## Build
+## Download
 
-> Early (0.1.0): Apple Silicon, not code-signed, no TUN mode yet. The 0.1.0 build under Releases predates the exits page, applications and exit checks; build from source for those.
+From [Releases](https://github.com/huangpd/faro/releases): `Faro-<version>-AppleSilicon.dmg` for M-series Macs, `Faro-<version>-Intel.dmg` for Intel ones. Drag `faro.app` to Applications. It is not signed with an Apple Developer ID: open it once, then press **Open Anyway** for Faro in System Settings → Privacy & Security.
+
+> Early: not code-signed, no TUN mode yet.
+
+## Build
 
 macOS and Go 1.27 or newer:
 
@@ -58,6 +62,8 @@ go test ./...
 go run .
 ./scripts/package.sh           # build/darwin-<arch>/faro.app and a disk image
 ```
+
+Both Macs at once: `./scripts/fetch-singbox.sh amd64`, then `go tool mygo build -platform darwin/arm64,darwin/amd64`. Pushing a `v<version>` tag has GitHub Actions build both and publish them (`.github/workflows/release.yml`).
 
 A native GPU-rendered UI ([mygo](https://github.com/egoist/mygo): no WebView, no cgo); [sing-box](https://github.com/SagerNet/sing-box) runs as a separate process, driven through its Clash API.
 

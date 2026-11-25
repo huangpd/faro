@@ -1,0 +1,100 @@
+# Builds Faro for Apple Silicon and for Intel Macs and publishes them as a
+# release, when a version tag is pushed:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# The tag must be the version in mygo.json. Both apps are built on one Apple
+# Silicon runner: Faro needs no cgo, and each app gets the core of its own
+# architecture (resources/darwin-<arch>/bin). Run by hand (Actions → release →
+# Run workflow), it builds the disk images and keeps them as an artifact,
+# without publishing anything.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: The tag is the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          want="v$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' mygo.json)"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME, but mygo.json says $want"; exit 1; }
+
+      - name: Fetch the cores (both architectures) and the rule sets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/fetch-singbox.sh arm64
+          ./scripts/fetch-singbox.sh amd64
+          ./scripts/fetch-rulesets.sh
+
+      - name: Test (Apple Silicon)
+        run: go test ./... -count=1
+
+      - name: Test (Intel, under Rosetta, where the runner has it)
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            GOARCH=amd64 go test ./... -count=1
+          else
+            echo "no Rosetta on this runner: the Intel build is compiled, not tested"
+          fi
+
+      - name: Build both apps and their disk images
+        run: go tool mygo build -platform darwin/arm64,darwin/amd64
+
+      - name: Name the disk images for people
+        run: |
+          ver="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' mygo.json)"
+          mkdir -p dist
+          cp "build/darwin-arm64/faro-$ver-arm64.dmg" "dist/Faro-$ver-AppleSilicon.dmg"
+          cp "build/darwin-amd64/faro-$ver-amd64.dmg" "dist/Faro-$ver-Intel.dmg"
+          (cd dist && shasum -a 256 *.dmg > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "VER=$ver" >> "$GITHUB_ENV"
+
+      - name: Keep them (a run by hand)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: faro-${{ env.VER }}
+          path: dist/
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## 下载 / Download
+
+          - **Apple Silicon（M1、M2、M3、M4…）**：`Faro-*-AppleSilicon.dmg`
+          - **Intel Mac**：`Faro-*-Intel.dmg`
+
+          不确定是哪种：点左上角  →「关于本机」，「芯片」写着 Apple 的选 Apple Silicon，「处理器」写着 Intel 的选 Intel。
+
+          ## 第一次打开 / First launch
+
+          这个 App 没有 Apple 开发者签名，macOS 第一次会拦下它：
+          1. 把 `faro.app` 拖进「应用程序」。
+          2. 打开一次，被拦下后到「系统设置 → 隐私与安全性」，点 Faro 旁边的「仍要打开」。
+
+          或者在终端执行：`xattr -dr com.apple.quarantine /Applications/faro.app`
+
+          The app is not signed with an Apple Developer ID. Drag it to Applications, open it once, then press **Open Anyway** for Faro in System Settings → Privacy & Security.
+
+          ---
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/*.dmg dist/SHA256SUMS.txt \
+            --title "Faro $VER" --prerelease --notes-file notes.md --generate-notes

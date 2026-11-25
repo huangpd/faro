@@ -65,10 +65,18 @@ direct set:geosite-cn                               # 国内直连
 
 生效顺序：局域网与私有地址直连 → 各出口生成的阻断 → 应用（按顺序）→ 规则文本（从上往下）→ 其余走 `proxy`。第一条命中的决定去向。完整语法在规则页「复制给 AI 的提示词」里。
 
-## 安装和构建
+## 下载安装
 
-> 状态：早期（0.1.0）。仅 Apple Silicon，未做代码签名，暂无 TUN 模式。
-> [Releases](https://github.com/huangpd/faro/releases) 里的 0.1.0 是较早的构建；这里介绍的出口页、应用、出口核对等功能，目前需要从源码构建。
+到 [Releases](https://github.com/huangpd/faro/releases) 下载：
+
+- **Apple Silicon**（M1、M2、M3、M4…）：`Faro-<版本>-AppleSilicon.dmg`
+- **Intel Mac**：`Faro-<版本>-Intel.dmg`
+
+打开 DMG，把 `faro.app` 拖进「应用程序」。App 没有 Apple 开发者签名，macOS 第一次会拦下它：打开一次，然后到「系统设置 → 隐私与安全性」点 Faro 旁边的「仍要打开」。
+
+> 状态：早期。未做代码签名，暂无 TUN 模式。
+
+## 从源码构建
 
 要求：macOS，Go 1.27 或更新。
 
@@ -80,7 +88,7 @@ go run .                       # 从源码运行
 ./scripts/package.sh           # 构建 build/darwin-<arch>/faro.app 和磁盘镜像
 ```
 
-未签名的 App 第一次打开会被 macOS 拦下：试着打开一次，然后到「系统设置 → 隐私与安全性」点「仍要打开」。
+两种 Mac 一起构建：`./scripts/fetch-singbox.sh amd64` 下载 Intel 版内核，再 `go tool mygo build -platform darwin/arm64,darwin/amd64`。推送 `v<版本>` 标签时，GitHub Actions 会自动构建这两个版本并发布到 Releases（见 `.github/workflows/release.yml`）。
 
 技术上：原生 GPU 渲染界面（[mygo](https://github.com/egoist/mygo)，没有 WebView，不用 cgo）；[sing-box](https://github.com/SagerNet/sing-box) 作为独立进程运行，通过 Clash API 控制。代码结构：`internal/engine` 是 Faro 做的所有事（不含界面），`internal/rules` 是规则语言，`internal/singcfg` 生成 sing-box 配置，`internal/applib/data/apps.list` 是应用规则库，各页面是根目录下的 `page_*.go`。
 

@@ -1,0 +1,28 @@
+# Runs the tests on every push to main and every pull request, on a Mac, with
+# the real sing-box core (the tests drive it with made-up nodes).
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fetch the core and the rule sets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/fetch-singbox.sh
+          ./scripts/fetch-rulesets.sh
+      - name: Test
+        run: go test ./... -count=1
