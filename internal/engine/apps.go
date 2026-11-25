@@ -28,8 +28,52 @@ func (e *Engine) AddApp(target, id string) error {
 // name, and what it is, as sites (example.com) or kind:value of the rules
 // language, separated by spaces or lines.
 func (e *Engine) AddCustomApp(target, name, text string) error {
-	var sites, sets, others []string
-	for _, tok := range applib.Tokens(strings.NewReplacer("，", " ", ",", " ").Replace(text)) {
+	sites, sets, others, err := parseItems(applib.Tokens(strings.NewReplacer("，", " ", ",", " ").Replace(text)))
+	if err != nil {
+		return err
+	}
+	if len(sites)+len(sets)+len(others) == 0 {
+		return ErrGroup("写上这个应用的域名，或者 process:、cidr: 这样的条件")
+	}
+	return e.addApp(target, name, "", sites, sets, others)
+}
+
+// SetGroupItems sets what a group holds besides its rule sets: sites
+// (example.com) and the rules language's kind:value, each token whole, so a
+// program's name may have spaces.
+func (e *Engine) SetGroupItems(name string, tokens []string) error {
+	sites, sets, others, err := parseItems(tokens)
+	if err != nil {
+		return err
+	}
+	if len(sets) > 0 {
+		return ErrGroup("规则集用下面的搜索添加")
+	}
+	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
+		i := findGroup(gs, name)
+		if i < 0 {
+			return nil, ErrGroup("没有叫 " + name + " 的分组")
+		}
+		gs[i].Domains = nil
+		gs[i].Rules = others
+		place(gs, i, sites)
+		return gs, nil
+	})
+}
+
+// Items is what SetGroupItems takes: the group's sites, then its other rules.
+func Items(g domains.Group) []string {
+	return append(append([]string(nil), g.Domains...), g.Rules...)
+}
+
+// parseItems reads tokens as sites, rule sets and other rules, refusing what
+// the rules language would not take.
+func parseItems(tokens []string) (sites, sets, others []string, err error) {
+	for _, tok := range tokens {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
 		kind, val, ok := strings.Cut(tok, ":")
 		if !ok || strings.Contains(tok, "://") {
 			kind, val = "domain", tok
@@ -38,26 +82,23 @@ func (e *Engine) AddCustomApp(target, name, text string) error {
 		case "domain":
 			d, ok := domains.One(val)
 			if !ok {
-				return ErrGroup("不是域名：" + tok)
+				return nil, nil, nil, ErrGroup("不是域名：" + tok)
 			}
 			sites = append(sites, d)
 		case "set":
 			if !ruleset.Valid(val) {
-				return ErrGroup("不是规则集：" + val)
+				return nil, nil, nil, ErrGroup("不是规则集：" + val)
 			}
 			sets = append(sets, val)
 		default:
 			others = append(others, kind+":"+val)
 		}
 	}
-	if len(sites)+len(sets)+len(others) == 0 {
-		return ErrGroup("写上这个应用的域名，或者 process:、cidr: 这样的条件")
-	}
-	head, _ := domains.Head([]domains.Group{{Name: name, Target: rules.TargetProxy, Rules: others}})
+	head, _ := domains.Head([]domains.Group{{Name: "x", Target: rules.TargetProxy, Rules: others}})
 	if _, errs := rules.Compile(head, nil, nil); errs != nil {
-		return ErrGroup(errs[0].Msg)
+		return nil, nil, nil, ErrGroup(errs[0].Msg)
 	}
-	return e.addApp(target, name, "", sites, sets, others)
+	return sites, sets, others, nil
 }
 
 func (e *Engine) addApp(target, name, id string, sites, sets, others []string) error {

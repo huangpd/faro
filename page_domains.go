@@ -126,7 +126,7 @@ func (a *app) groupCard(c *ui.Context, st engine.State, i int, g domains.Group) 
 			ui.Text(c, "→").FontSize(fsBody).TextColor(a.k.text2)
 			to := g.Target
 			if a.targetPicker(c, "g:"+g.Name, ts, &to, g.Name+"的去向") {
-				if n := len(g.Domains) + len(g.Sets); n == 0 {
+				if n := len(g.Domains) + len(g.Sets) + len(g.Rules); n == 0 {
 					a.domErr = errText(a.eng.SetGroupTarget(g.Name, to))
 				} else { // all that is in it goes with it: ask first
 					a.retarget = retargetAsk{open: true, group: g.Name, to: to,
@@ -152,9 +152,10 @@ func (a *app) groupCard(c *ui.Context, st engine.State, i int, g domains.Group) 
 			tok = new([]string)
 			a.domTokens[g.Name] = tok
 		}
-		*tok = append((*tok)[:0], g.Domains...)
-		if ui.TokenField(c, tok, []string{}).Label(g.Name + "的域名").Placeholder("添加域名").Changed() {
-			a.domErr = errText(a.eng.SetGroupDomains(g.Name, *tok))
+		// Besides sites, a group can hold programs and the like, as kind:value.
+		*tok = append((*tok)[:0], engine.Items(g)...)
+		if ui.TokenField(c, tok, []string{}).Label(g.Name + "的内容").Placeholder("添加域名，或 process:App、cidr:1.2.3.0/24").Changed() {
+			a.domErr = errText(a.eng.SetGroupItems(g.Name, *tok))
 		}
 		a.groupSets(c, st, g)
 		a.groupOverlaps(c, st, g)
@@ -196,6 +197,9 @@ func holds(g domains.Group) string {
 	}
 	if n := len(g.Sets); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d 个规则集", n))
+	}
+	if n := len(g.Rules); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个其他条件", n))
 	}
 	return strings.Join(parts, "、")
 }

@@ -1571,3 +1571,30 @@ func TestApplicationsAreAddedFromTheExitCard(t *testing.T) {
 		t.Errorf("not removed: %+v", gs)
 	}
 }
+
+// A group that holds a program shows it, and it can be added to and taken out
+// like a site; kind:value that the rules would not take is refused.
+func TestAGroupShowsAndTakesProgramsToo(t *testing.T) {
+	a := newTestApp(t)
+	a.rulesTab = tabDomains
+	if err := a.eng.AddCustomApp("direct", "Orca", "process:Orca"); err != nil {
+		t.Fatal(err)
+	}
+	tt := view(a, "规则")
+	need(t, tt, "Orca", "process:Orca")
+	if err := a.eng.SetGroupItems("Orca", []string{"process:Orca", "orca.example", "process:Orca Helper (GPU)"}); err != nil {
+		t.Fatal(err)
+	}
+	g := a.eng.State().Groups[0]
+	if strings.Join(g.Domains, ",") != "orca.example" || strings.Join(g.Rules, ",") != "process:Orca,process:Orca Helper (GPU)" {
+		t.Errorf("group %+v", g)
+	}
+	for _, bad := range [][]string{{"port:nope"}, {"not a site"}, {"set:geosite-cn"}} {
+		if err := a.eng.SetGroupItems("Orca", bad); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	if len(a.eng.State().Groups[0].Rules) != 2 {
+		t.Error("a refused change was kept")
+	}
+}
