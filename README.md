@@ -25,14 +25,10 @@ Faro 反过来设计：**宁可断开，也不换出口。**
 
 **出口和它的设置。** 出口卡片可以折叠；节点、守卫、出口网段、核对间隔和时段都写在卡片上，不从别处继承。
 
-![出口页]<img width="2128" height="1392" alt="325ed9d243676e8481fbc70041d59761" src="https://github.com/user-attachments/assets/30cb8379-1dbe-413e-b008-018916dba498" />
-
-
+![出口页](docs/screenshots/exits.png)
 **应用规则库。** 搜索 Claude、ChatGPT、Gemini、Cursor、GitHub 等常用服务，一键加到某个出口；也可以自己写域名、进程或 IP 段。
 
-![添加应用] <img width="1131" height="762" alt="8b9a5bfd2884ec1bb54c6223dc836296" src="https://github.com/user-attachments/assets/3f9589a2-ed7f-48f3-9a81-e91c63fc425e" />
-
-
+![添加应用](docs/screenshots/library.png)
 **最终顺序。** 按 sing-box 实际比对的顺序列出每条规则，并标出被上面的规则挡住、永远用不到的部分。
 
 ![最终顺序](docs/screenshots/order.png)
