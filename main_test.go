@@ -631,6 +631,13 @@ func TestAIPromptCarriesThisSetup(t *testing.T) {
 			t.Errorf("the prompt lacks %q", want)
 		}
 	}
+	// The applications are named on their exits, with their sets.
+	if err := a.eng.AddCustomApp("claude", "Orca", "process:Orca orca.example"); err != nil {
+		t.Fatal(err)
+	}
+	if p := a.aiPrompt(a.eng.State()); !strings.Contains(p, "claude | Orca | orca.example process:Orca") {
+		t.Errorf("the application is not in the prompt:\n%s", p)
+	}
 	// A notice is not a server: it is not offered as a node name.
 	if strings.Contains(p, "剩余流量") {
 		t.Error("a notice is in the node names")

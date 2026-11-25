@@ -28,14 +28,27 @@ type Context struct {
 	Regions   []string // the regions the language knows
 	NodeNames []string // node names, as the subscription gives them
 	RuleSets  []string // the rule sets that are installed: the only ones set: can name
+	Apps      []App    // the applications on the exits, in the order they are checked
+}
+
+// App is an application as the prompt shows it: the exit it is on, its name,
+// and what it holds, as the「自己写」field takes it.
+type App struct {
+	Exit, Name string
+	Items      []string // example.com, or kind:value; values with spaces unquoted
 }
 
 // Prompt returns the whole text to paste into an AI tool.
 func Prompt(c Context) string {
 	var b strings.Builder
-	b.WriteString("你是 Faro（一个 sing-box 客户端）的规则助手。请严格使用下面的“Faro 规则语法”，帮我写规则。\n")
-	b.WriteString("要求：只输出规则文本，放在一个代码块里；不要解释；不要写成 Clash 或 sing-box 的 JSON 格式；")
-	b.WriteString("不要修改我已有的路由名；拿不准的地方，用注释（# 开头）写在对应行上方。\n\n")
+	b.WriteString("你是 Faro（一个 sing-box 客户端）的规则助手。请严格使用下面的“Faro 规则语法”，帮我改规则。\n")
+	b.WriteString("Faro 里有两处可以写：出口上的「应用」，和「规则文本」。回答分两部分，各放一个代码块，没有的部分就省略：\n")
+	b.WriteString("A. 应用（优先用它）：每行一个，格式 `出口 | 名字 | 条目 条目 …`。条目是域名（example.com，含它的子域名），")
+	b.WriteString("或 full: keyword: cidr: process: path: set: 加值；值里有空格就加双引号。改已有的应用，写同名的一行并给出它完整的新内容。\n")
+	b.WriteString("B. 规则文本：只在应用做不到时才用，比如只限 udp/tcp/ipv6、几个条件必须同时满足、阻断（block）、新建或修改 route。只输出规则文本里要新增或修改的行，并说明放在哪一行之后。\n")
+	b.WriteString("不要解释；不要写成 Clash 或 sing-box 的 JSON 格式；不要修改我已有的路由名；拿不准的地方，用注释（# 开头）写在对应行上方。\n")
+	b.WriteString("生效顺序：先是局域网与私有地址直连，然后是各出口 noudp/noipv6 生成的阻断，然后是下面列出的应用（按列出的顺序），然后是规则文本（从上往下），都没匹配的走 proxy。")
+	b.WriteString("第一个匹配的决定去向，所以规则文本挡不住应用已经匹配的流量。\n\n")
 	b.WriteString("=== Faro 规则语法 ===\n")
 	b.WriteString(strings.TrimSpace(spec))
 	b.WriteString("\n\n=== 我的情况 ===\n")
@@ -62,12 +75,26 @@ func Prompt(c Context) string {
 			b.WriteString("    " + n + "\n")
 		}
 	}
+	if len(c.Apps) > 0 {
+		b.WriteString("\n我的应用（按检查顺序；`出口 | 名字 | 条目`）:\n```\n")
+		for _, a := range c.Apps {
+			items := make([]string, len(a.Items))
+			for i, it := range a.Items {
+				if k, v, ok := strings.Cut(it, ":"); ok && strings.ContainsAny(v, " \t") {
+					it = k + `:"` + v + `"`
+				}
+				items[i] = it
+			}
+			fmt.Fprintf(&b, "%s | %s | %s\n", a.Exit, a.Name, strings.Join(items, " "))
+		}
+		b.WriteString("```\n")
+	}
 	if strings.TrimSpace(c.Rules) != "" {
-		b.WriteString("\n我现在的完整规则（需要时在它的基础上增删，只输出要新增或修改的行，并说明在哪一行之后）:\n```\n")
+		b.WriteString("\n我现在的规则文本（在应用之后检查）:\n```\n")
 		b.WriteString(strings.TrimRight(c.Rules, "\n"))
 		b.WriteString("\n```\n")
 	}
-	b.WriteString("\n=== 我的需求 ===\n（在这里写你想要什么，用自然语言就行。例如：让某个网站走日本节点；把某个程序的流量直接放行；）\n")
+	b.WriteString("\n=== 我的需求 ===\n（在这里写你想要什么，用自然语言就行。例如：让某个网站走 claude 出口；把某个程序的流量直接放行；）\n")
 	return b.String()
 }
 

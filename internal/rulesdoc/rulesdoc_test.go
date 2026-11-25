@@ -102,12 +102,27 @@ func TestPromptCarriesTheLanguageTheSetupAndAPlaceForTheRequest(t *testing.T) {
 		"Rule sets（set: 只能用这些，不要自己编）: geosite-cn geoip-cn",
 		"route claude region UK gate ipv4", "route openai like claude", "route google region DE", // their routes
 		"🇬🇧 London 01", "🇯🇵 Tokyo 01", // node names
-		"我现在的完整规则", "我的需求", // where the person writes
+		"我现在的规则文本", "我的需求", // where the person writes
 		"只输出规则文本",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the prompt lacks %q", want)
 		}
+	}
+	// The applications: each on its exit, in order, a value with spaces quoted;
+	// and the answer is asked for in the form the「自己写」field takes.
+	q := Prompt(Context{Rules: text, Apps: []App{
+		{Exit: "claude", Name: "Claude", Items: []string{"claude.ai", "process:Claude Helper (GPU)", "set:geosite-anthropic"}},
+		{Exit: "direct", Name: "中国大陆", Items: []string{"set:geosite-cn"}},
+	}})
+	for _, want := range []string{"我的应用", "claude | Claude | claude.ai process:\"Claude Helper (GPU)\" set:geosite-anthropic\ndirect | 中国大陆",
+		"出口 | 名字 | 条目", "生效顺序", "规则文本挡不住应用已经匹配的流量"} {
+		if !strings.Contains(q, want) {
+			t.Errorf("the prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(p, "我的应用") {
+		t.Error("no applications, and yet a list of them")
 	}
 	// Comments in the rules do not leak into the list of routes.
 	for _, line := range routeLines("route a region UK # a comment\n# route hidden region DE\nroute \"x\"\n") {
@@ -129,7 +144,7 @@ func TestPromptCarriesTheLanguageTheSetupAndAPlaceForTheRequest(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		many = append(many, "Node "+string(rune('A'+i%26))+string(rune('a'+i/26)))
 	}
-	q := Prompt(Context{NodeNames: many})
+	q = Prompt(Context{NodeNames: many})
 	if n := strings.Count(q, "\n    Node "); n != 12 {
 		t.Errorf("%d node names, want 12", n)
 	}

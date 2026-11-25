@@ -8,7 +8,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"faro/internal/domains"
 	"faro/internal/engine"
 	"faro/internal/rules"
 	"faro/internal/rulesdoc"
@@ -165,11 +164,17 @@ func (a *app) aiPrompt(st engine.State) string {
 		sets = append(sets, name)
 	}
 	sort.Strings(sets)
-	prompt := rulesdoc.Prompt(rulesdoc.Context{Rules: st.RulesText, Regions: regions, NodeNames: names, RuleSets: sets})
-	// The person's own groups of sites are checked before the text, so a rule
-	// written to go with them has to know what they hold.
-	if head, _ := domains.Head(st.Groups); head != "" {
-		prompt += "\n\nSites this person keeps in their own list, outside the rules above. They are checked BEFORE the rules above, so they win; do not repeat them:\n\n" + head
+	// The applications are checked before the text: the prompt names each, on its exit.
+	var apps []rulesdoc.App
+	for _, g := range st.Groups {
+		if st.GroupErrors[g.Name] != "" {
+			continue // not in force
+		}
+		items := engine.Items(g)
+		for _, s := range g.Sets {
+			items = append(items, "set:"+s)
+		}
+		apps = append(apps, rulesdoc.App{Exit: g.Target, Name: g.Name, Items: items})
 	}
-	return prompt
+	return rulesdoc.Prompt(rulesdoc.Context{Rules: st.RulesText, Regions: regions, NodeNames: names, RuleSets: sets, Apps: apps})
 }
