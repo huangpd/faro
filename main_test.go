@@ -1536,3 +1536,38 @@ func TestExitCardsFoldAndTheirSettingsAreWrittenToTheRoute(t *testing.T) {
 		t.Errorf("a bad range was saved, or not said: %q", tt.Texts())
 	}
 }
+
+// On an exit's card: the library is searched, an application added, one written
+// by hand, and one removed after asking.
+func TestApplicationsAreAddedFromTheExitCard(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧英国-UK-1-流量倍率:0.9")
+	if errs := a.eng.ApplyRules("route work region UK noudp\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	a.setPage(pageRules)
+	a.exitOpen["work"] = true
+	tt := view(a, "添加应用")
+	need(t, tt, "在规则库中搜索", "自己写")
+	a.appQuery = "hugging"
+	tt = view(a)
+	need(t, tt, "Hugging Face", "把 Hugging Face 加到 work")
+	tt = view(a, "把 Hugging Face 加到 work")
+	if gs := a.eng.State().Groups; len(gs) != 1 || gs[0].App != "huggingface" || gs[0].Target != "work" {
+		t.Fatalf("groups %+v", gs)
+	}
+	need(t, view(a), "已在 work", "规则库", "阻断 UDP")
+	a.customName, a.customText = "办公", "work.example process:Office"
+	view(a, "自己写")
+	if gs := a.eng.State().Groups; len(gs) != 2 || gs[1].Name != "办公" || gs[1].App != "" {
+		t.Fatalf("groups %+v", gs)
+	}
+	need(t, view(a), "办公", "自定义")
+	// Removing asks first.
+	tt = view(a, "移除 办公")
+	need(t, tt, "移除 办公？")
+	view(a, "移除")
+	if gs := a.eng.State().Groups; len(gs) != 1 {
+		t.Errorf("not removed: %+v", gs)
+	}
+}

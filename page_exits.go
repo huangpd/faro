@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"faro/internal/applib"
 	"faro/internal/engine"
 	"faro/internal/rules"
 	"faro/internal/singcfg"
@@ -64,7 +65,8 @@ func everyValue(label string) string {
 // application on the card.
 type section struct {
 	label  string
-	group  bool // from「我的域名」, not the rules text
+	group  bool   // a group (an application), not a heading of the rules text
+	app    string // the library entry it came from
 	values []string
 	shadow []string
 }
@@ -74,6 +76,7 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 	if a.orderFor != key {
 		a.orderFor, a.order = key, a.eng.Order()
 	}
+	a.groups = st.Groups
 	if st.Plan == nil {
 		a.empty(c, "list-checks", "规则没有生效", "先在「规则文本」里改正错误", nil)
 		return
@@ -91,6 +94,7 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		a.plainExitCard(c, st, rules.TargetProxy, a.k.text2.Alpha(0.5))
 		a.plainExitCard(c, st, rules.TargetDirect, a.k.ok.Alpha(0.6))
 	})
+	a.removeAppDialog(c)
 }
 
 // sections gathers the steps that send to target by their heading, in order.
@@ -110,7 +114,15 @@ func (a *app) sections(target string) []section {
 			i = len(out)
 			at[label] = i
 			name, group := strings.CutPrefix(label, "分组 · ")
-			out = append(out, section{label: name, group: group})
+			sec := section{label: name, group: group}
+			if group {
+				for _, g := range a.groups {
+					if g.Name == name {
+						sec.app = g.App
+					}
+				}
+			}
+			out = append(out, sec)
 		}
 		for _, m := range s.Matchers {
 			for _, v := range m.Values {
@@ -140,7 +152,11 @@ func valueText(kind, v string) string {
 
 // guards says what else holds an exit: blocks written for its traffic, over
 // UDP and over IPv6, found among the block rules that share a value with it.
-func (a *app) guards(id string) (udp, v6 bool) {
+func (a *app) guards(id string) (udp, v6 bool) { return a.guardsOf(id, true) }
+
+// guardsOf is guards, counting the blocks the route's own noudp and noipv6
+// make only with own.
+func (a *app) guardsOf(id string, own bool) (udp, v6 bool) {
 	mine := map[string]bool{}
 	for _, s := range a.order {
 		if s.Target == id {
@@ -152,7 +168,12 @@ func (a *app) guards(id string) (udp, v6 bool) {
 		}
 	}
 	for _, s := range a.order {
-		if s.Target != rules.TargetBlock || s.Route != "" {
+		if s.Guard == id && own {
+			udp = udp || s.Network == "udp"
+			v6 = v6 || s.IPVersion == 6
+			continue
+		}
+		if s.Target != rules.TargetBlock || s.Route != "" || s.Guard != "" {
 			continue
 		}
 		for _, m := range s.Matchers {
@@ -263,6 +284,7 @@ func (a *app) exitCard(c *ui.Context, st engine.State, r rules.Route, hue ui.Col
 			}
 			ui.Divider(c)
 			a.sectionRows(c, secs)
+			a.addAppPanel(c, st, r.ID)
 		})
 	})
 }
@@ -299,9 +321,10 @@ func (a *app) plainExitCard(c *ui.Context, st engine.State, id string, hue ui.Co
 			if head.Clicked() {
 				a.exitOpen[id] = !open
 			}
-			if open && len(secs) > 0 {
+			if open {
 				ui.Divider(c)
 				a.sectionRows(c, secs)
+				a.addAppPanel(c, st, id)
 			}
 		})
 	})
@@ -317,17 +340,37 @@ func (a *app) sectionRows(c *ui.Context, secs []section) {
 	}
 	for _, s := range secs {
 		ui.Column(c).Gap(4).Children(func() {
-			ui.Row(c).Height(28).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, s.label).FontSize(fsBody).FontWeight(500).Width(220).SingleLine().Ellipsis("…").Tooltip(s.label)
+			ui.Row(c).Height(30).Gap(10).AlignItems(ui.Center).Children(func() {
+				ic := "scroll-text"
+				if s.group {
+					ic = "list-checks"
+				}
+				if lib, ok := applib.Find(s.app); ok {
+					ic = lib.Icon
+				}
+				ui.Box(c).Size(24, 24).Radius(7).Background(a.k.surface2).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+					icon(c, ic, 13, a.k.text)
+				})
+				ui.Text(c, s.label).FontSize(fsBody).FontWeight(500).Width(200).SingleLine().Ellipsis("…").Tooltip(s.label)
 				what := strings.Join(s.values[:min(len(s.values), 4)], " · ")
 				if len(s.values) > 4 {
 					what += fmt.Sprintf(" 等 %d 项", len(s.values))
 				}
 				mono(ui.Text(c, what).FontSize(fsMeta).TextColor(a.k.text2)).Grow(1).SingleLine().Ellipsis("…").Tooltip(strings.Join(s.values, "\n"))
-				if s.group {
-					a.pill(c, "我的域名", a.k.accent)
-				} else {
+				switch {
+				case s.app != "":
+					a.pill(c, "规则库", a.k.text2)
+				case s.group:
+					a.pill(c, "自定义", a.k.accent)
+				default:
 					a.pill(c, "规则文本", a.k.text2)
+				}
+				if s.group {
+					if a.iconButton(c, "trash-2", "移除 "+s.label).Clicked() {
+						a.removeApp, a.removeAsk = s.label, true
+					}
+				} else {
+					ui.Box(c).Size(28, 28) // keeps the rows' ends in line
 				}
 			})
 			for _, sh := range s.shadow {
@@ -401,13 +444,19 @@ func (a *app) exitSettings(c *ui.Context, st engine.State, r rules.Route, d *exi
 					}
 					ui.Text(c, "熔断门").FontSize(fsBody)
 				})
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Switch(c, &d.rl.IPv4).Label("仅 IPv4")
-					ui.Text(c, "仅 IPv4").FontSize(fsBody)
-				})
+				for _, g := range []struct {
+					name string
+					on   *bool
+				}{{"仅 IPv4", &d.rl.IPv4}, {"阻断 UDP", &d.rl.NoUDP}, {"阻断 IPv6", &d.rl.NoIPv6}} {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						ui.Switch(c, g.on).Label(g.name)
+						ui.Text(c, g.name).FontSize(fsBody)
+					})
+				}
 			})
-			if udp, v6 := a.guards(r.ID); udp || v6 {
-				ui.Text(c, "阻断 UDP / IPv6 写在「规则文本」里").FontSize(fsCaption).TextColor(a.k.text2)
+			// Blocks written in the rules text hold too, whatever the switches say.
+			if udp, v6 := a.guardsOf(r.ID, false); (udp && !d.rl.NoUDP) || (v6 && !d.rl.NoIPv6) {
+				ui.Text(c, "规则文本里另有阻断行").FontSize(fsCaption).TextColor(a.k.text2).Tooltip("开关只管这条出口自己生成的阻断；规则文本里写的阻断行照样生效")
 			}
 		})
 		if d.rl.Kind == "like" {
@@ -532,4 +581,77 @@ func containsStr(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// addAppPanel is the end of an open exit card: a button that opens the
+// library's search here, with a form for one written by hand under it.
+func (a *app) addAppPanel(c *ui.Context, st engine.State, exit string) {
+	if a.addingTo != exit {
+		ui.Row(c).Children(func() {
+			if a.button(c, btnGhost, "plus", "添加应用").Clicked() {
+				a.addingTo, a.appQuery, a.appErr = exit, "", ""
+				a.customName, a.customText = "", ""
+			}
+		})
+		return
+	}
+	where := map[string]string{} // library id -> the exit it is on
+	for _, g := range st.Groups {
+		if g.App != "" {
+			where[g.App] = g.Target
+		}
+	}
+	ui.Column(c).Gap(6).Padding(10, 12).Radius(12).Background(a.k.surface2.Alpha(0.5)).Border(1, a.k.border).Children(func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			icon(c, "search", 14, a.k.text2)
+			ui.TextInput(c, &a.appQuery).Label("在规则库中搜索").Placeholder("搜索应用、域名或进程").Grow(1)
+			if a.button(c, btnGhost, "", "收起").Clicked() {
+				a.addingTo = ""
+			}
+		})
+		found := applib.Search(a.appQuery)
+		if len(found) == 0 {
+			ui.Text(c, "规则库里没有，可以在下面自己写").FontSize(fsMeta).TextColor(a.k.text2)
+		}
+		for _, lib := range found[:min(len(found), 8)] {
+			ui.Row(c).Height(32).Gap(10).AlignItems(ui.Center).Children(func() {
+				ui.Box(c).Size(24, 24).Radius(7).Background(a.k.surface).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+					icon(c, lib.Icon, 13, a.k.text)
+				})
+				ui.Text(c, lib.Name).FontSize(fsBody).FontWeight(500).Width(110).SingleLine()
+				ui.Text(c, lib.About).FontSize(fsCaption).TextColor(a.k.text2).Width(150).SingleLine().Ellipsis("…")
+				mono(ui.Text(c, strings.Join(lib.Rules[:min(len(lib.Rules), 3)], " · ")).FontSize(fsCaption).TextColor(a.k.text2)).Grow(1).SingleLine().Ellipsis("…").Tooltip(strings.Join(lib.Rules, "\n"))
+				if t, ok := where[lib.ID]; ok {
+					ui.Text(c, "已在 "+targetName(t)).FontSize(fsCaption).TextColor(a.k.text2)
+				} else if a.button(c, btnSecondary, "plus", "加到 "+targetName(exit)).Label("把 " + lib.Name + " 加到 " + exit).Clicked() {
+					a.appErr = errText(a.eng.AddApp(exit, lib.ID))
+				}
+			})
+		}
+		ui.Divider(c)
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.TextInput(c, &a.customName).Label("自定义应用的名字").Placeholder("名字").Width(120)
+			mono(ui.TextInput(c, &a.customText).Label("自定义应用的内容").Placeholder("example.com  process:App  cidr:203.0.113.0/24").Grow(1))
+			if a.button(c, btnSecondary, "plus", "自己写").Clicked() {
+				if err := a.eng.AddCustomApp(exit, a.customName, a.customText); err != nil {
+					a.appErr = err.Error()
+				} else {
+					a.customName, a.customText, a.appErr = "", "", ""
+				}
+			}
+		})
+		if a.appErr != "" {
+			ui.Text(c, a.appErr).FontSize(fsMeta).TextColor(a.k.danger).Selectable()
+		}
+	})
+}
+
+// removeAppDialog asks before an application is taken off its exit.
+func (a *app) removeAppDialog(c *ui.Context) {
+	if !a.removeAsk {
+		return
+	}
+	if ui.AlertDialog(c, &a.removeAsk, "移除 "+a.removeApp+"？", "它的流量会改由下面的规则决定，通常是 proxy。", "取消", "移除") == 1 {
+		a.appErr = errText(a.eng.DeleteGroup(a.removeApp))
+	}
 }

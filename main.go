@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 
+	"faro/internal/domains"
 	"faro/internal/engine"
 	"faro/internal/geo"
 	"faro/internal/rules"
@@ -49,8 +50,15 @@ type app struct {
 	rulesErrs []rules.Error
 	rulesTab  int // tabExits, tabDomains, tabOrder or tabText
 
-	exitOpen map[string]bool       // exit cards unfolded
-	exitEdit map[string]*exitDraft // exit cards with their settings open
+	exitOpen               map[string]bool       // exit cards unfolded
+	exitEdit               map[string]*exitDraft // exit cards with their settings open
+	groups                 []domains.Group       // the groups, as last drawn
+	addingTo               string                // the exit whose「添加应用」is open
+	appQuery               string
+	appErr                 string
+	customName, customText string
+	removeApp              string // the application asked about removing
+	removeAsk              bool
 
 	orderFor string        // what the order was worked out for
 	order    []engine.Step // the rules in force, as the core checks them

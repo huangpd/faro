@@ -12,7 +12,9 @@ import (
 // The program must work for anyone's rules: no service, company or product
 // that one user happens to care about may be written into the code. What a
 // user wants is theirs to write in the rules page; the one text Faro ships
-// (internal/presets/data) is neutral.
+// (internal/presets/data) is neutral. The application library
+// (internal/applib/data) names services as data: a catalog for anyone, which
+// sends nothing anywhere until the person adds an entry to an exit.
 //
 // Tests may name them (internal/fixtures holds a setup for them); the program
 // and what it ships may not.

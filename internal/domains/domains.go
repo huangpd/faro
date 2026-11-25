@@ -22,6 +22,12 @@ type Group struct {
 	Domains []string `json:"domains"`
 	// Sets are rule sets, by name, that stand for many sites at once.
 	Sets []string `json:"sets,omitempty"`
+	// Rules are what else the group holds, in the rules language's kind:value:
+	// programs (process:, path:), exact names (full:), address ranges (cidr:).
+	// Each kind goes on lines of its own, so that they are "or", never "and".
+	Rules []string `json:"rules,omitempty"`
+	// App is the library entry the group was added from, "" for one written by hand.
+	App string `json:"app,omitempty"`
 }
 
 var label = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -126,6 +132,28 @@ func Head(groups []Group) (text string, owners []int) {
 			b.WriteString("\n")
 			owners = append(owners, gi)
 		}
+		var kinds []string
+		byKind := map[string][]string{}
+		for _, r := range g.Rules {
+			k, v, ok := strings.Cut(r, ":")
+			if !ok {
+				continue
+			}
+			if byKind[k] == nil {
+				kinds = append(kinds, k)
+			}
+			if strings.ContainsAny(v, " \t") {
+				v = `"` + v + `"`
+			}
+			byKind[k] = append(byKind[k], k+":"+v)
+		}
+		for _, k := range kinds {
+			toks := byKind[k]
+			for i := 0; i < len(toks); i += perLine {
+				b.WriteString(g.Target + " " + strings.Join(toks[i:min(i+perLine, len(toks))], " ") + "\n")
+				owners = append(owners, gi)
+			}
+		}
 	}
 	return b.String(), owners
 }
@@ -167,7 +195,8 @@ func Save(path string, groups []Group) error {
 func Copy(groups []Group) []Group {
 	out := make([]Group, len(groups))
 	for i, g := range groups {
-		out[i] = Group{g.Name, g.Target, append([]string(nil), g.Domains...), append([]string(nil), g.Sets...)}
+		out[i] = Group{Name: g.Name, Target: g.Target, Domains: append([]string(nil), g.Domains...),
+			Sets: append([]string(nil), g.Sets...), Rules: append([]string(nil), g.Rules...), App: g.App}
 	}
 	return out
 }

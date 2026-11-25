@@ -79,7 +79,7 @@ func TestSaveAndLoad(t *testing.T) {
 	if g, err := Load(p); err != nil || g != nil {
 		t.Fatalf("a missing file is no groups: %v %v", g, err)
 	}
-	in := []Group{{"AI", "claude", []string{"a.com"}, []string{"geosite-x"}}, {"直连", "direct", nil, nil}}
+	in := []Group{{Name: "AI", Target: "claude", Domains: []string{"a.com"}, Sets: []string{"geosite-x"}}, {Name: "直连", Target: "direct"}}
 	if err := Save(p, in); err != nil {
 		t.Fatal(err)
 	}
@@ -107,5 +107,19 @@ func TestHeadWritesSetsAfterTheSitesOfTheirGroup(t *testing.T) {
 	c[0].Sets[0] = "changed"
 	if Copy(c)[0].Sets[0] != "changed" {
 		t.Error("copy keeps sets")
+	}
+}
+
+// A group's other rules go on lines of their own kind, quoted where they have spaces.
+func TestAGroupsOtherRulesAreLinesOfOneKind(t *testing.T) {
+	head, owners := Head([]Group{{Name: "a", Target: "uk", Domains: []string{"a.example"},
+		Rules: []string{"process:App", "full:api.example", "process:App Helper (GPU)", "cidr:203.0.113.0/24"}}})
+	want := "uk domain:a.example\nuk process:App process:\"App Helper (GPU)\"\nuk full:api.example\nuk cidr:203.0.113.0/24\n"
+	if head != want || len(owners) != 4 {
+		t.Errorf("got\n%s%v", head, owners)
+	}
+	c := Copy([]Group{{Name: "a", Rules: []string{"process:x"}, App: "lib"}})
+	if len(c[0].Rules) != 1 || c[0].App != "lib" {
+		t.Errorf("copy lost them: %+v", c)
 	}
 }
