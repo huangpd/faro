@@ -5,26 +5,49 @@
 #
 # One application a line:  <id> | <name> | <icon> | <what it is> | <kind:value ...>
 # The kinds are the rules language's: domain: full: keyword: cidr: set:
-# process: path:. Values with spaces go in double quotes. A set is fetched
-# when the application is added; the domains are listed as well, so that it
-# works before, or without, the set.
+# process: path:. Values with spaces go in double quotes.
+#
+# Where SagerNet's sing-geosite has a rule set for the service (the community's
+# domain-list-community), the entry carries it: it is the full list, kept
+# current. The domains written here are the main ones of that set, so that the
+# entry works before the set is fetched, or if it cannot be. Program names and
+# paths are not in any set: they are the entry's own.
 
-claude      | Claude       | sparkles | 网页与桌面 App | domain:anthropic.com domain:claude.ai domain:claude.com domain:clau.de domain:claudeusercontent.com domain:claudemcpclient.com domain:claudemcpcontent.com cidr:160.79.104.0/21 process:Claude process:"Claude Helper" process:"Claude Helper (GPU)" process:"Claude Helper (Renderer)" process:"Claude Helper (Plugin)" set:geosite-anthropic
-claude-code | Claude Code  | terminal | 命令行 | process:claude path:/\.local/share/claude/versions/
-chatgpt     | ChatGPT      | sparkles | 网页与桌面 App | domain:openai.com domain:chatgpt.com domain:chat.com domain:sora.com domain:oaistatic.com domain:oaiusercontent.com process:ChatGPT set:geosite-openai
-codex       | Codex        | terminal | 命令行 | process:codex
-gemini      | Gemini       | sparkles | 网页与 AI Studio | domain:gemini.google.com domain:gemini.google domain:aistudio.google.com domain:generativelanguage.googleapis.com set:geosite-google-gemini
-google      | Google       | globe    | 搜索、账号与全部 Google 服务 | domain:google.com domain:googleapis.com domain:gstatic.com domain:googleusercontent.com domain:ggpht.com domain:gvt1.com domain:gvt2.com domain:recaptcha.net set:geosite-google
-grok        | Grok         | sparkles | 网页 | domain:x.ai domain:grok.com set:geosite-xai
-perplexity  | Perplexity   | sparkles | 网页与 App | domain:perplexity.ai domain:pplx.ai process:Perplexity
-cursor      | Cursor       | terminal | 编辑器 | domain:cursor.com domain:cursor.sh domain:cursorapi.com process:Cursor
-github      | GitHub       | terminal | 代码与下载 | domain:github.com domain:githubusercontent.com domain:githubassets.com domain:github.io domain:ghcr.io set:geosite-github
-huggingface | Hugging Face | terminal | 模型与数据集 | domain:huggingface.co domain:hf.co
-youtube     | YouTube      | play     | 视频 | domain:youtube.com domain:youtu.be domain:googlevideo.com domain:ytimg.com domain:youtube-nocookie.com set:geosite-youtube
-netflix     | Netflix      | play     | 视频 | domain:netflix.com domain:netflix.net domain:nflxvideo.net domain:nflximg.net domain:nflxext.com domain:nflxso.net set:geosite-netflix
-spotify     | Spotify      | play     | 音乐 | domain:spotify.com domain:scdn.co domain:spotifycdn.com process:Spotify set:geosite-spotify
-telegram    | Telegram     | command  | 消息 | domain:telegram.org domain:t.me domain:telegram.me process:Telegram set:geosite-telegram
-discord     | Discord      | command  | 消息与语音 | domain:discord.com domain:discord.gg domain:discordapp.com domain:discordapp.net process:Discord set:geosite-discord
-x           | X            | command  | 原 Twitter | domain:x.com domain:twitter.com domain:twimg.com domain:t.co set:geosite-twitter
-wikipedia   | Wikipedia    | globe    | 百科 | domain:wikipedia.org domain:wikimedia.org
-ip-check    | 出口查询     | globe    | 查看自己出口 IP 的网站 | full:api.ipify.org full:api-ipv4.ip.sb full:v4.ident.me domain:ipinfo.io domain:ip.sb
+# ---- AI -------------------------------------------------------------------
+claude         | Claude          | sparkles | 网页与桌面 App | domain:anthropic.com domain:claude.ai domain:claude.com domain:clau.de domain:claudeusercontent.com domain:claudemcpclient.com domain:claudemcpcontent.com cidr:160.79.104.0/21 process:Claude process:"Claude Helper" process:"Claude Helper (GPU)" process:"Claude Helper (Renderer)" process:"Claude Helper (Plugin)" set:geosite-anthropic
+claude-code    | Claude Code     | terminal | 命令行 | process:claude path:/\.local/share/claude/versions/
+chatgpt        | ChatGPT         | sparkles | 网页与桌面 App | domain:openai.com domain:chatgpt.com domain:chat.com domain:sora.com domain:oaistatic.com domain:oaiusercontent.com process:ChatGPT set:geosite-openai
+codex          | Codex           | terminal | 命令行 | process:codex
+gemini         | Gemini          | sparkles | 网页、AI Studio、NotebookLM | domain:gemini.google.com domain:gemini.google domain:aistudio.google.com domain:ai.studio domain:notebooklm.google.com domain:generativelanguage.googleapis.com domain:deepmind.google domain:deepmind.com set:geosite-google-gemini
+grok           | Grok            | sparkles | 网页 | domain:x.ai domain:grok.com domain:grokbot.com set:geosite-xai
+perplexity     | Perplexity      | sparkles | 网页与 App | domain:perplexity.ai domain:perplexity.com domain:pplx.ai set:geosite-perplexity
+deepseek       | DeepSeek        | sparkles | 网页与 API | domain:deepseek.com domain:deepseeksvc.com set:geosite-deepseek
+poe            | Poe             | sparkles | 多模型聊天 | domain:poe.com domain:poecdn.net set:geosite-poe
+cursor         | Cursor          | terminal | AI 编辑器 | domain:cursor.com domain:cursor.sh domain:cursorapi.com domain:cursor-cdn.com domain:cursorvm.com set:geosite-cursor
+github-copilot | GitHub Copilot  | terminal | 编程助手 | domain:githubcopilot.com full:copilot-proxy.githubusercontent.com full:copilot-telemetry-service.githubusercontent.com set:geosite-github-copilot
+jetbrains-ai   | JetBrains AI    | terminal | IDE 里的 AI 助手 | domain:jetbrains.ai domain:grazie.ai domain:grazie.aws.intellij.net set:geosite-jetbrains-ai
+huggingface    | Hugging Face    | terminal | 模型与数据集 | domain:huggingface.co domain:hf.co domain:hf.space set:geosite-huggingface
+ai-abroad      | 海外 AI 合集    | sparkles | 社区维护的海外 AI 服务清单，一次全加 | set:geosite-category-ai-!cn
+ip-check       | 出口查询        | globe    | 查看自己出口 IP 的网站 | full:api.ipify.org full:api-ipv4.ip.sb full:v4.ident.me domain:ipinfo.io domain:ip.sb
+
+# ---- Google and the rest of the web ---------------------------------------
+google         | Google          | globe    | 搜索、账号与全部 Google 服务 | domain:google.com domain:googleapis.com domain:gstatic.com domain:googleusercontent.com domain:ggpht.com domain:gvt1.com domain:gvt2.com domain:recaptcha.net set:geosite-google
+github         | GitHub          | terminal | 代码与下载 | domain:github.com domain:githubusercontent.com domain:githubassets.com domain:github.io domain:ghcr.io set:geosite-github
+docker         | Docker          | terminal | 镜像与 Hub | domain:docker.com domain:docker.io domain:dockerstatic.com set:geosite-docker
+npm            | npm             | terminal | JavaScript 包 | domain:npmjs.com domain:npmjs.org set:geosite-npmjs
+stackoverflow  | Stack Overflow  | globe    | 问答 | domain:stackoverflow.com domain:stackexchange.com domain:sstatic.net domain:superuser.com set:geosite-stackexchange
+notion         | Notion          | globe    | 笔记 | domain:notion.so domain:notion.com domain:notion.site domain:notion-static.com domain:notionusercontent.com set:geosite-notion
+figma          | Figma           | globe    | 设计 | domain:figma.com set:geosite-figma
+slack          | Slack           | command  | 团队消息 | domain:slack.com domain:slack-edge.com domain:slack-msgs.com domain:slack-files.com process:Slack set:geosite-slack
+wikipedia      | Wikipedia       | globe    | 百科 | domain:wikipedia.org domain:wikimedia.org domain:wikidata.org domain:w.wiki set:geosite-wikimedia
+reddit         | Reddit          | globe    | 社区 | domain:reddit.com domain:redd.it domain:redditmedia.com domain:redditstatic.com set:geosite-reddit
+
+# ---- Video, music and messages --------------------------------------------
+youtube        | YouTube         | play     | 视频 | domain:youtube.com domain:youtu.be domain:googlevideo.com domain:ytimg.com domain:youtube-nocookie.com set:geosite-youtube
+netflix        | Netflix         | play     | 视频 | domain:netflix.com domain:netflix.net domain:nflxvideo.net domain:nflximg.net domain:nflxext.com domain:nflxso.net set:geosite-netflix
+spotify        | Spotify         | play     | 音乐 | domain:spotify.com domain:scdn.co domain:spotifycdn.com process:Spotify set:geosite-spotify
+telegram       | Telegram        | command  | 消息 | domain:telegram.org domain:t.me domain:telegram.me domain:telegra.ph process:Telegram set:geosite-telegram
+discord        | Discord         | command  | 消息与语音 | domain:discord.com domain:discord.gg domain:discordapp.com domain:discordapp.net process:Discord set:geosite-discord
+whatsapp       | WhatsApp        | command  | 消息 | domain:whatsapp.com domain:whatsapp.net domain:wa.me process:WhatsApp set:geosite-whatsapp
+x              | X               | command  | 原 Twitter | domain:x.com domain:twitter.com domain:twimg.com domain:t.co set:geosite-twitter
+instagram      | Instagram       | command  | 图片社交 | domain:instagram.com domain:cdninstagram.com domain:ig.me set:geosite-instagram
