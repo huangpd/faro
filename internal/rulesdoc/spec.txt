@@ -9,8 +9,8 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
 
 ## Routes: groups of nodes that a rule can send traffic to
 
-    route <id> region <XX> [fast] [gate] [ipv4] [exit:<range>] [check:<time>] [hours:<from>-<to>]
-    route <id> regex "<expression>" [fast] [gate] [ipv4] [exit:<range>] [check:<time>] [hours:<from>-<to>]
+    route <id> region <XX> [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>] [check:<time>] [hours:<from>-<to>]
+    route <id> regex "<expression>" [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>] [check:<time>] [hours:<from>-<to>]
     route <id> like <other-route>
 
 - <id>: lower-case letters, digits and '-', starting with a letter. Not one of
@@ -27,6 +27,9 @@ ignored. Values with spaces go in double quotes: process:"Some Helper".
   to it goes out.
 - `ipv4` makes what is sent to the route leave its node over IPv4 only: names are
   looked up IPv4 only, through the route itself, and the node is given the address.
+- `noudp` and `noipv6` block what is sent to the route over UDP, or to IPv6
+  addresses: every rule that sends to the route is repeated as a block above ALL
+  other rules, so nothing written elsewhere can let that traffic out.
 - `exit:<range>` (e.g. exit:198.51.100.0/24; several allowed) is where the route may
   leave from: the address the world sees is checked while it runs, and the route is
   cut when it is another, or cannot be told. It implies `gate`.

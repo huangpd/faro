@@ -14,6 +14,7 @@ type RouteLine struct {
 	ID, Kind, Arg string // Arg: the region, the expression, or the route followed
 	Fast, Gate    bool
 	IPv4          bool
+	NoUDP, NoIPv6 bool
 	Exit          []string
 	Check, Hours  string // as written: "5m", "09:00-23:30"; "" when not given
 }
@@ -52,6 +53,10 @@ func findRoute(lines []string, id string) (int, RouteLine, bool) {
 					rl.Gate = true
 				case m == "ipv4":
 					rl.IPv4 = true
+				case m == "noudp":
+					rl.NoUDP = true
+				case m == "noipv6":
+					rl.NoIPv6 = true
 				case strings.HasPrefix(m, "exit:"):
 					rl.Exit = append(rl.Exit, m[len("exit:"):])
 				case strings.HasPrefix(m, "check:"):
@@ -81,6 +86,12 @@ func (rl RouteLine) String() string {
 	}
 	if rl.IPv4 {
 		out = append(out, "ipv4")
+	}
+	if rl.NoUDP {
+		out = append(out, "noudp")
+	}
+	if rl.NoIPv6 {
+		out = append(out, "noipv6")
 	}
 	for _, x := range rl.Exit {
 		out = append(out, "exit:"+x)

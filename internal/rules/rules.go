@@ -57,6 +57,10 @@ type Route struct {
 	Fast bool   // follow the fastest node, rather than hold one
 	Gate bool   // the group has a way to cut it: GateTag
 	IPv4 bool   // its traffic leaves its nodes over IPv4 only
+	// NoUDP and NoIPv6 block what is sent to the route over UDP, or to an IPv6
+	// address: every rule that sends to it is repeated, as a block, above all
+	// the others, wherever it is written.
+	NoUDP, NoIPv6 bool
 	// Exit is the addresses the route may leave from, as address ranges: the
 	// address the world sees is checked, and a route that leaves from another
 	// is cut. Empty is no check.
@@ -96,6 +100,7 @@ type Rule struct {
 	Matchers  []Matcher
 	Line      int
 	Route     string // the route it was written for, when it blocks because that route has no node
+	Guard     string // the route whose noudp or noipv6 made it
 }
 
 // Plan is what the text says, with the nodes taken into account.
@@ -325,6 +330,7 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 		}
 		p.Rules = append(p.Rules, rule)
 	}
+	p.Rules = append(guards(p.Rules, routes), p.Rules...)
 	if len(errs) > 0 {
 		sort.SliceStable(errs, func(i, j int) bool { return errs[i].Line < errs[j].Line })
 		return nil, errs
@@ -332,8 +338,50 @@ func Compile(text string, tags []string, choices map[string]string) (*Plan, []Er
 	return p, nil
 }
 
+// guards are the blocks that a route's noudp and noipv6 make: each rule that
+// sends to the route, again, as a block over UDP or to IPv6 addresses. They go
+// above all the rules, so that no rule written above can let such traffic out.
+func guards(rs []Rule, routes map[string]*Route) []Rule {
+	var out []Rule
+	add := func(g Rule) {
+		if n := len(out); n > 0 && mergeable(out[n-1], g) {
+			out[n-1].Matchers[0].Values = append(out[n-1].Matchers[0].Values, g.Matchers[0].Values...)
+			return
+		}
+		out = append(out, g)
+	}
+	for _, r := range rs {
+		id := r.Route
+		if t, ok := strings.CutPrefix(r.Target, GroupPrefix); ok {
+			id = t
+		}
+		rt := routes[id]
+		if rt == nil {
+			continue
+		}
+		copyOf := func() Rule {
+			g := Rule{Target: TargetBlock, Network: r.Network, IPVersion: r.IPVersion, Line: r.Line, Guard: id}
+			for _, m := range r.Matchers {
+				g.Matchers = append(g.Matchers, Matcher{m.Kind, append([]string(nil), m.Values...)})
+			}
+			return g
+		}
+		if rt.NoUDP && r.Network != "tcp" {
+			g := copyOf()
+			g.Network = "udp"
+			add(g)
+		}
+		if rt.NoIPv6 && r.IPVersion != 4 {
+			g := copyOf()
+			g.IPVersion = 6
+			add(g)
+		}
+	}
+	return out
+}
+
 func mergeable(a, b Rule) bool {
-	return a.Target == b.Target && a.Route == b.Route && a.Network == b.Network && a.IPVersion == b.IPVersion &&
+	return a.Target == b.Target && a.Route == b.Route && a.Guard == b.Guard && a.Network == b.Network && a.IPVersion == b.IPVersion &&
 		len(a.Matchers) == 1 && len(b.Matchers) == 1 && a.Matchers[0].Kind == b.Matchers[0].Kind
 }
 
@@ -407,7 +455,7 @@ func parseRule(f []string, line int) (Rule, string) {
 }
 
 func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
-	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4] [exit:<range>]  |  route <id> regex <expression> [...]  |  route <id> like <route>"
+	const usage = "expected: route <id> region <XX> [fast] [gate] [ipv4] [noudp] [noipv6] [exit:<range>]  |  route <id> regex <expression> [...]  |  route <id> like <route>"
 	if len(f) < 3 {
 		return nil, usage
 	}
@@ -451,6 +499,10 @@ func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
 			r.Gate = true
 		case "ipv4":
 			r.IPv4 = true
+		case "noudp":
+			r.NoUDP = true
+		case "noipv6":
+			r.NoIPv6 = true
 		default:
 			if v, ok := strings.CutPrefix(mod, "exit:"); ok {
 				p, err := exitRange(v)
@@ -476,7 +528,7 @@ func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
 				r.Hours = v
 				continue
 			}
-			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4, exit:<address range>, check:<time>, hours:<from>-<to>", mod)
+			return nil, fmt.Sprintf("unknown option %q; options: fast, gate, ipv4, noudp, noipv6, exit:<address range>, check:<time>, hours:<from>-<to>", mod)
 		}
 	}
 	if (r.CheckEvery != 0 || r.Hours != "") && len(r.Exit) == 0 {

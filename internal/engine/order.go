@@ -12,6 +12,7 @@ import (
 type Step struct {
 	Target    string // a route's id, "proxy", "auto", "direct" or "block"
 	Route     string // for "block": the route it was written for, which has no node
+	Guard     string // for "block": the route whose noudp or noipv6 made it
 	Label     string // the group it comes from, or the heading above it in the rules text
 	Line      int    // its line in the rules text; 0 or less for a group's
 	Network   string
@@ -40,9 +41,11 @@ func (e *Engine) Order() []Step {
 	shadows := rules.Shadows(plan.Rules)
 	out := make([]Step, len(plan.Rules))
 	for i, r := range plan.Rules {
-		s := Step{Target: strings.TrimPrefix(r.Target, rules.GroupPrefix), Route: r.Route, Line: r.Line, Network: r.Network,
+		s := Step{Target: strings.TrimPrefix(r.Target, rules.GroupPrefix), Route: r.Route, Guard: r.Guard, Line: r.Line, Network: r.Network,
 			IPVersion: r.IPVersion, Matchers: r.Matchers, Shadowed: shadows[i]}
-		if r.Line <= 0 {
+		if r.Guard != "" {
+			s.Label = r.Guard + " 的守卫"
+		} else if r.Line <= 0 {
 			if k := r.Line + len(owners) - 1; k >= 0 && k < len(owners) {
 				s.Label = "分组 · " + active[owners[k]].Name
 			}
