@@ -161,6 +161,9 @@ type Engine struct {
 	overlaps   []Overlap
 	overlapGen int
 
+	// life is held while a core is stopped or started, so that runs of
+	// different generations never start a core over each other.
+	life          sync.Mutex
 	mu            sync.Mutex
 	status        string
 	version       string
@@ -1092,7 +1095,9 @@ func (e *Engine) Restart() {
 	e.changed()
 	go func() {
 		e.fail(e.proxy.Disable()) // the new core has another port
+		e.life.Lock()
 		e.core.Stop()
+		e.life.Unlock()
 		e.run(g)
 	}()
 }
@@ -1109,7 +1114,9 @@ func (e *Engine) Stop() {
 	e.mu.Unlock()
 	go func() {
 		e.fail(e.proxy.Disable()) // before the core goes: no dead proxy
+		e.life.Lock()
 		e.core.Stop()
+		e.life.Unlock()
 		e.mu.Lock()
 		if e.gen == g {
 			e.status, e.rate = Stopped, clashapi.Traffic{}
@@ -1180,7 +1187,17 @@ func (e *Engine) run(g int) {
 	dns := singcfg.DNSChoice{Domestic: e.prefs.DNSDomestic, Foreign: e.prefs.DNSForeign}
 	e.mu.Unlock()
 	in := singcfg.Input{Nodes: nodes, Plan: plan, Choices: choices, Sets: ruleset.Paths(e.setsDir), DNS: dns}
-	if err := e.core.Start(in, port); err != nil {
+	// Only the newest run starts a core, and it starts it in place of any that
+	// an older run got going first: never two, never an old one left behind.
+	e.life.Lock()
+	if !e.current(g) {
+		e.life.Unlock()
+		return
+	}
+	e.core.Stop()
+	err := e.core.Start(in, port)
+	e.life.Unlock()
+	if err != nil {
 		e.stopped(g, err.Error())
 		return
 	}
