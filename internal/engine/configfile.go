@@ -116,10 +116,10 @@ func ParseConfig(b []byte) (*ConfigFile, error) {
 	names := map[string]bool{}
 	for _, g := range cfg.Groups {
 		if strings.TrimSpace(g.Name) == "" {
-			return nil, errors.New("有一个分组没有名字")
+			return nil, errors.New("有一个应用没有名字")
 		}
 		if names[g.Name] {
-			return nil, fmt.Errorf("分组 %s 出现了两次", g.Name)
+			return nil, fmt.Errorf("应用 %s 出现了两次", g.Name)
 		}
 		names[g.Name] = true
 	}

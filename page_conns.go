@@ -175,7 +175,7 @@ func (a *app) heldBy(st engine.State, host string) string {
 		item := strings.TrimPrefix(name, "geosite-")
 		for _, g := range st.Groups {
 			if slices.Contains(g.Sets, name) {
-				item += "（分组 " + g.Name + "）"
+				item += "（应用 " + g.Name + "）"
 			}
 		}
 		out = append(out, item)

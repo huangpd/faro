@@ -87,7 +87,7 @@ func (a *app) configSettings(c *ui.Context) {
 		a.exportConfig()
 	}
 	if s.importAsk && ui.AlertDialog(c, &s.importAsk, "导入并替换当前配置？",
-		s.importWhat+"当前的订阅、出口、分组和设置会被替换；替换前会先备份当前配置。", "取消", "导入") == 1 {
+		s.importWhat+"当前的订阅、出口、应用和设置会被替换；替换前会先备份当前配置。", "取消", "导入") == 1 {
 		a.importConfig()
 	}
 }
@@ -155,7 +155,7 @@ func (a *app) importConfig() {
 		s.err = err.Error()
 		return
 	}
-	said := fmt.Sprintf("已导入：%d 个订阅、%d 个节点、%d 个分组。原配置已备份到 %s", res.Subscriptions, res.Nodes, res.Groups, res.Backup)
+	said := fmt.Sprintf("已导入：%d 个订阅、%d 个节点、%d 个应用。原配置已备份到 %s", res.Subscriptions, res.Nodes, res.Groups, res.Backup)
 	if res.PortKept != 0 {
 		said += fmt.Sprintf("。文件里的端口在这台 Mac 上已被占用，继续使用 %d", res.PortKept)
 	}
@@ -176,6 +176,6 @@ func configSummary(cfg *engine.ConfigFile) string {
 	if cfg.App != "" {
 		from = "Faro " + cfg.App + " "
 	}
-	return fmt.Sprintf("这个文件由 %s于 %s 导出，包含 %d 个订阅、%d 个节点、%d 个分组。",
+	return fmt.Sprintf("这个文件由 %s于 %s 导出，包含 %d 个订阅、%d 个节点、%d 个应用。",
 		from, cfg.Exported.Local().Format("2006-01-02 15:04"), len(cfg.Subscriptions), nodes, len(cfg.Groups))
 }

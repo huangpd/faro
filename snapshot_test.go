@@ -53,14 +53,12 @@ func TestSnapshots(t *testing.T) {
 	pages := []struct {
 		p    page
 		name string
-	}{{pageNow, "now"}, {pageSubs, "subs"}, {pageConns, "conns"}, {pageRules, "exits"}, {pageRules, "domains"}, {pageRules, "order"}, {pageRules, "rules"}, {pageLogs, "logs"}, {pageSettings, "settings"}}
+	}{{pageNow, "now"}, {pageSubs, "subs"}, {pageConns, "conns"}, {pageRules, "exits"}, {pageRules, "order"}, {pageRules, "rules"}, {pageLogs, "logs"}, {pageSettings, "settings"}}
 	for _, dark := range []bool{true, false} {
 		for _, pg := range pages {
 			a.setPage(pg.p)
-			a.rulesTab = tabText // the rules text; "domains" is the other tab
+			a.rulesTab = tabText
 			switch pg.name {
-			case "domains":
-				a.rulesTab = tabDomains
 			case "order":
 				a.rulesTab = tabOrder
 			case "exits":

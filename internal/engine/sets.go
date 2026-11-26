@@ -70,7 +70,7 @@ func (e *Engine) AddSet(group, name string) error {
 	e.mu.Lock()
 	if findGroup(e.groupsList, group) < 0 {
 		e.mu.Unlock()
-		return ErrGroup("没有叫 " + group + " 的分组")
+		return ErrGroup("没有叫 " + group + " 的应用")
 	}
 	if e.busy != "" {
 		e.mu.Unlock()
@@ -124,7 +124,7 @@ func (e *Engine) putSets(group string, names []string) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, group)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + group + " 的分组")
+			return nil, ErrGroup("没有叫 " + group + " 的应用")
 		}
 		for _, name := range names {
 			for j := range gs {
@@ -148,7 +148,7 @@ func (e *Engine) RemoveSet(group, name string) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, group)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + group + " 的分组")
+			return nil, ErrGroup("没有叫 " + group + " 的应用")
 		}
 		var keep []string
 		for _, s := range gs[i].Sets {

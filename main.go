@@ -49,7 +49,7 @@ type app struct {
 	expanded  map[string]bool // lanes with their nodes shown
 	rulesEdit string
 	rulesErrs []rules.Error
-	rulesTab  int // tabExits, tabDomains, tabOrder or tabText
+	rulesTab  int // tabExits, tabOrder or tabText
 
 	exitOpen               map[string]bool       // exit cards unfolded
 	exitEdit               map[string]*exitDraft // exit cards with their settings open
@@ -65,8 +65,10 @@ type app struct {
 	delExitAsk             bool
 	exitErr                string // why an exit was not deleted
 
-	orderFor string        // what the order was worked out for
-	order    []engine.Step // the rules in force, as the core checks them
+	orderFor  string          // what the order was worked out for
+	order     []engine.Step   // the rules in force, as the core checks them
+	orderOpen map[string]bool // the blocks of the order opened to their steps
+	appOpen   map[string]bool // the applications opened to be edited, by name
 
 	rulesOpen       bool // the text is open to editing
 	showConfig      bool
@@ -77,14 +79,8 @@ type app struct {
 	rulesMarked     uint64        // the version the mistakes were last marked at
 	rulesMarkedErrs int
 
-	domSel    map[string]*string   // the places' drop-downs, by group
 	domTokens map[string]*[]string // each group's sites, as the field holds them
-	domErr    string
-	setQuery  map[string]*string // each group's rule-set search
-	newGroup  newGroupDraft
-	retarget  retargetAsk
-	delAsk    bool // asking before a group is deleted
-	delName   string
+	setQuery  map[string]*string   // each group's rule-set search
 
 	previewFor   string // what the preview was made from
 	previewText  string
@@ -110,7 +106,7 @@ type app struct {
 }
 
 func newApp(eng *engine.Engine) *app {
-	return &app{eng: eng, expanded: map[string]bool{}, exitOpen: map[string]bool{}, exitEdit: map[string]*exitDraft{}, dnsSel: map[string]*string{}, domSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, rulesEdit: eng.State().RulesText, cfgIO: nativeConfigIO()}
+	return &app{eng: eng, expanded: map[string]bool{}, exitOpen: map[string]bool{}, exitEdit: map[string]*exitDraft{}, dnsSel: map[string]*string{}, domTokens: map[string]*[]string{}, setQuery: map[string]*string{}, mapRuns: map[string]*mapRun{}, orderOpen: map[string]bool{}, appOpen: map[string]bool{}, rulesEdit: eng.State().RulesText, cfgIO: nativeConfigIO()}
 }
 
 // coalesce makes a notifier that asks post to run fn later, once for any

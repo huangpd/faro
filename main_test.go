@@ -926,24 +926,39 @@ func TestPagesCarryNoExplanatorySentences(t *testing.T) {
 	}
 }
 
-// The sites the person keeps, in groups, on the rules page.
-func TestTheSitesTabOffersAGroupWhenThereIsNone(t *testing.T) {
-	a := newTestApp(t)
-	a.rulesTab = tabDomains // the rules page opens on the exits
-	tt := view(a, "规则")
-	need(t, tt, "我的域名", "规则文本", "还没有分组", "新建分组")
-	if tt.HasText("应用") {
-		t.Error("the rules text's Apply is on the sites tab")
+// apps draws the rules page on the exits, with these exit cards open, and
+// these applications open to be edited, in a window tall enough for them all.
+func apps(t *testing.T, a *app, exits []string, open ...string) *ui.Tester {
+	t.Helper()
+	a.setPage(pageRules)
+	a.rulesTab = tabExits
+	for _, e := range exits {
+		a.exitOpen[e] = true
 	}
-	// The other tab is the rules text, as it was.
+	for _, g := range open {
+		a.appOpen[g] = true
+	}
+	return tall(t, a)
+}
+
+// The rules page has three tabs: the applications are under their exits, not
+// on a page of their own.
+func TestTheRulesPageHasThreeTabs(t *testing.T) {
+	a := newTestApp(t)
+	tt := view(a, "规则")
+	need(t, tt, "出口", "最终顺序", "规则文本")
+	if tt.HasText("我的域名") {
+		t.Error("the sites tab is still there")
+	}
 	tt = view(a, "规则", "规则文本")
 	need(t, tt, "解锁编辑", "查看生成的配置")
 	need(t, view(a, "规则", "规则文本", "查看生成的配置"), "sing-box", "隐藏生成的配置")
 }
 
-func TestGroupsAreShownWithTheirPlaceAndSites(t *testing.T) {
+// Each application is under its exit, with its priority; what the numbers are
+// is said once above.
+func TestApplicationsAreShownUnderTheirExitsWithTheirPriority(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = tabDomains // the rules page opens on the exits
 	withNodes(t, a, "🇬🇧 London 01", "🇩🇪 Frankfurt 01")
 	usePreset(t, a, "ai-accounts")
 	if err := a.eng.NewGroup("AI 应用", "claude", "claude.ai chatgpt.com"); err != nil {
@@ -952,34 +967,86 @@ func TestGroupsAreShownWithTheirPlaceAndSites(t *testing.T) {
 	if err := a.eng.NewGroup("视频", "proxy", "youtube.com"); err != nil {
 		t.Fatal(err)
 	}
-	tt := view(a, "规则")
-	need(t, tt, "AI 应用", "视频", "claude", "proxy", "claude.ai", "chatgpt.com", "youtube.com", "新建分组")
+	tt := apps(t, a, []string{"claude", "proxy"})
+	need(t, tt, "#1", "AI 应用", "claude.ai · chatgpt.com", "#2", "视频", "youtube.com", "自定义",
+		"应用前的 #编号 是优先级：同一个网站出现在几个应用里时，编号小的生效。可以在应用右侧的 ⋯ 里上移、下移来调整。")
+	// One application: nothing to order, nothing said.
+	b := newTestApp(t)
+	b.eng.NewGroup("视频", "proxy", "youtube.com")
+	if apps(t, b, nil).HasText("#编号 是优先级") {
+		t.Error("the priorities are explained with one application")
+	}
 }
 
-func TestMakingAGroupFromTheForm(t *testing.T) {
+// An application's ⋯ moves it up and down, to another exit, or out; a click
+// on it opens it to be edited where it is.
+func TestAnApplicationIsMovedAndRemovedFromItsMenu(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = tabDomains // the rules page opens on the exits
-	tt := view(a, "规则", "新建分组")
-	need(t, tt, "创建", "取消")
-	a.newGroup.name, a.newGroup.target = "直连的站", "direct"
-	view(a, "规则").Click("创建")
-	if g := a.eng.State().Groups; len(g) != 1 || g[0].Name != "直连的站" || g[0].Target != "direct" {
-		t.Fatalf("groups %+v", g)
+	a.eng.NewGroup("甲", "direct", "a.example.com")
+	a.eng.NewGroup("乙", "direct", "b.example.com")
+	names := func() string {
+		var out []string
+		for _, g := range a.eng.State().Groups {
+			out = append(out, g.Name+">"+g.Target)
+		}
+		return strings.Join(out, " ")
 	}
-	if a.newGroup.open {
-		t.Error("the form stayed open after it made the group")
+	menu := func(name string, path ...string) {
+		t.Helper()
+		tt := apps(t, a, []string{"direct", "proxy"})
+		if err := tt.Click(name + "的更多操作"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem(path...); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
 	}
-	// A name twice is said, not made.
-	a.newGroup = newGroupDraft{open: true, name: "直连的站", target: "direct"}
-	view(a, "规则").Click("创建")
-	if len(a.eng.State().Groups) != 1 || a.domErr == "" {
-		t.Errorf("a second group of the same name: %q", a.domErr)
+	menu("乙", "上移（优先级提高）")
+	if names() != "乙>direct 甲>direct" {
+		t.Errorf("up: %s", names())
 	}
-	need(t, view(a, "规则"), a.domErr)
+	tt := apps(t, a, []string{"direct"})
+	if err := tt.Click("乙的更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("上移（优先级提高）"); err == nil {
+		t.Error("the first could be moved up")
+	}
+	tt.CloseMenu()
+	menu("乙", "下移（优先级降低）")
+	if names() != "甲>direct 乙>direct" {
+		t.Errorf("down: %s", names())
+	}
+	menu("乙", "移到其他出口", "proxy")
+	if names() != "甲>direct 乙>proxy" || !a.exitOpen["proxy"] {
+		t.Errorf("moved: %s", names())
+	}
+	// Opened by a click, it is edited where it is.
+	tt = apps(t, a, []string{"direct"})
+	if tt.HasText("甲的内容") || tt.HasText("甲的规则集搜索") {
+		t.Error("open before it was clicked")
+	}
+	if err := tt.Click("甲"); err != nil {
+		t.Fatal(err)
+	}
+	tt = apps(t, a, []string{"direct"})
+	need(t, tt, "甲的内容", "甲的规则集搜索")
+	if tt.HasText("乙的内容") {
+		t.Error("another application opened with it")
+	}
+	// Removed, after asking.
+	menu("甲", "删除")
+	need(t, apps(t, a, nil), "移除 甲？")
+	tall(t, a, "移除")
+	if names() != "乙>proxy" {
+		t.Errorf("removed: %s", names())
+	}
 }
 
-// From a connection: the site is put in a group with a click, as the whole domain.
-func TestAConnectionsSiteCanBeAddedToAGroup(t *testing.T) {
+// From a connection: the site is put in an application with a click, as the
+// whole domain, or a new one is begun under an exit with the site in it.
+func TestAConnectionsSiteCanBeAddedToAnApplication(t *testing.T) {
 	a := newTestApp(t)
 	a.eng.NewGroup("视频", "proxy", "")
 	view(a) // sets the look
@@ -988,7 +1055,7 @@ func TestAConnectionsSiteCanBeAddedToAGroup(t *testing.T) {
 		return ui.NewTester(func(c *ui.Context) { a.addFromConn(c, st, host) }, 700, 80)
 	}
 	tt := draw("r3---sn-abc.googlevideo.com")
-	need(t, tt, "加入分组", "googlevideo.com", "视频", "新建分组")
+	need(t, tt, "加入应用", "googlevideo.com", "视频", "新建应用")
 	if err := tt.Click("视频"); err != nil {
 		t.Fatal(err)
 	}
@@ -996,18 +1063,24 @@ func TestAConnectionsSiteCanBeAddedToAGroup(t *testing.T) {
 		t.Errorf("sites %v", g)
 	}
 	// An address is not a name: nothing to add.
-	if draw("192.0.2.7").HasText("加入分组") {
+	if draw("192.0.2.7").HasText("加入应用") {
 		t.Error("an IP address was offered as a site")
 	}
-	// With no group yet, there is a way to make one with the site in it.
+	// A new one: the exit is chosen, and its「添加应用」opens with the site written in.
 	b := newTestApp(t)
 	view(b)
-	if err := ui.NewTester(func(c *ui.Context) { b.addFromConn(c, b.eng.State(), "www.example.org") }, 700, 80).Click("新建分组"); err != nil {
+	tt = ui.NewTester(func(c *ui.Context) { b.addFromConn(c, b.eng.State(), "www.example.org") }, 700, 80)
+	if err := tt.Click("新建应用"); err != nil {
 		t.Fatal(err)
 	}
-	if !b.newGroup.open || b.newGroup.sites != "example.org" || b.page != pageRules || b.rulesTab != tabDomains {
-		t.Errorf("draft %+v page %v tab %d", b.newGroup, b.page, b.rulesTab)
+	if err := tt.ChooseMenuItem("在 直连 下新建"); err != nil {
+		t.Fatal(err)
 	}
+	tt.Frame()
+	if b.page != pageRules || b.rulesTab != tabExits || b.addingTo != "direct" || !b.exitOpen["direct"] || b.customText != "example.org" {
+		t.Errorf("page %v tab %d adding to %q, text %q", b.page, b.rulesTab, b.addingTo, b.customText)
+	}
+	need(t, tall(t, b), "自己写")
 }
 
 // Light mode: the window stays shut, the core and the menu bar go on.
@@ -1153,14 +1226,14 @@ func TestRulesEditorKeepsTheTextAndMarksMistakes(t *testing.T) {
 	}
 }
 
-func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
+func TestRuleSetFoundByNameAndAddedToAnApplication(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = tabDomains // the rules page opens on the exits
 	if err := a.eng.NewGroup("AI", "direct", "example.com"); err != nil {
 		t.Fatal(err)
 	}
+	a.rulesTab, a.exitOpen["direct"], a.appOpen["AI"] = tabExits, true, true
 	tt := view(a, "规则")
-	if tt.HasText("没有匹配的规则集") || tt.HasText("已在组里") {
+	if tt.HasText("没有匹配的规则集") || tt.HasText("已在应用里") {
 		t.Error("nothing is searched for, and nothing is shown")
 	}
 
@@ -1169,7 +1242,8 @@ func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
 	tt = view(a, "规则")
 	need(t, tt, "google-gemini", "添加")
 	for _, txt := range tt.Texts() {
-		if strings.Contains(txt, "geosite-") {
+		// The search's results, not the rules text's own lines under the exit.
+		if strings.HasPrefix(txt, "geosite-") {
 			t.Errorf("the shared prefix is shown: %q", txt)
 		}
 	}
@@ -1196,87 +1270,41 @@ func TestRuleSetFoundByNameAndAddedToAGroup(t *testing.T) {
 	}
 }
 
-func TestOverlapsAreShownOnBothGroupsAndASiteSaysWhichSetsHoldIt(t *testing.T) {
+func TestOverlapsAreShownOnBothApplicationsAndASiteSaysWhichSetsHoldIt(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = tabDomains // the rules page opens on the exits
 	a.eng.NewGroup("先", "direct", "")
 	a.eng.NewGroup("后", "proxy", "ai.google.dev")
 	if err := a.eng.AddSet("先", "geosite-google-gemini"); err != nil {
 		t.Fatal(err)
 	}
 	wait(t, "the overlap", func() bool { return len(a.eng.State().Overlaps) == 1 })
-	var said []string
-	for _, txt := range view(a, "规则").Texts() {
-		if strings.Contains(txt, "重叠") {
-			said = append(said, txt)
-		}
+	tt := apps(t, a, []string{"direct", "proxy"}, "先", "后")
+	need(t, tt, "与「后」#2 重叠 1 处，如 ai.google.dev；本应用排在前面，由它决定",
+		"与「先」#1 重叠 1 处，如 ai.google.dev；「先」排在前面，由它决定")
+	// Only the one behind is offered to go in front, and it goes there in one move.
+	if tt.HasText("让 先 排到 后 前面") {
+		t.Error("the one in front was offered to go in front")
 	}
-	if len(said) != 2 || !strings.Contains(said[0], "本组优先") || !strings.Contains(said[1], "「先」优先") {
-		t.Errorf("overlap lines %q", said)
+	if err := tt.Click("让 后 排到 先 前面"); err != nil {
+		t.Fatal(err)
 	}
+	tt.Frame()
+	wait(t, "the overlap again", func() bool { o := a.eng.State().Overlaps; return len(o) == 1 && o[0].Winner == "后" })
+	if g := a.eng.State().Groups; g[0].Name != "后" {
+		t.Errorf("not put in front: %+v", g)
+	}
+	need(t, apps(t, a, nil), "与「先」#2 重叠 1 处，如 ai.google.dev；本应用排在前面，由它决定")
 
 	var held string
 	wait(t, "the sets read", func() bool {
 		held = a.heldBy(a.eng.State(), "ai.google.dev")
 		return held != ""
 	})
-	if !strings.Contains(held, "google-gemini（分组 先）") || strings.Contains(held, "geosite-") {
+	if !strings.Contains(held, "google-gemini（应用 先）") || strings.Contains(held, "geosite-") {
 		t.Errorf("held by %q", held)
 	}
 	if a.heldBy(a.eng.State(), "192.0.2.7") != "" {
 		t.Error("an address was looked up as a name")
-	}
-}
-
-func TestChangingAGroupsPlaceAsksFirstWhenItHoldsSomething(t *testing.T) {
-	a := newTestApp(t)
-	a.rulesTab = tabDomains // the rules page opens on the exits
-	a.eng.NewGroup("国内", "direct", "a.com")
-	if err := a.eng.AddSet("国内", "geosite-google-gemini"); err != nil {
-		t.Fatal(err)
-	}
-	a.eng.NewGroup("空", "direct", "")
-	place := func(name string) string {
-		for _, g := range a.eng.State().Groups {
-			if g.Name == name {
-				return g.Target
-			}
-		}
-		return "?"
-	}
-
-	tt := view(a, "规则")
-	tt.Click("直连") // the first group's place
-	tt.Click("proxy")
-	if place("国内") != "direct" {
-		t.Fatal("a group with sites changed place without asking")
-	}
-	tt = view(a, "规则")
-	need(t, tt, "改变整个分组的去向？", "国内 里有 1 个域名、1 个规则集，都会改为去 proxy。", "改去向")
-	// Asked, and not answered: the drop-down is as it was.
-	if got := a.domSel["g:国内"]; got == nil || *got != "直连" {
-		t.Errorf("the drop-down shows %v", got)
-	}
-	tt.Click("取消")
-	if place("国内") != "direct" {
-		t.Error("cancel changed the place")
-	}
-
-	tt = view(a, "规则")
-	tt.Click("直连")
-	tt.Click("proxy")
-	view(a, "规则").Click("改去向")
-	if place("国内") != "proxy" {
-		t.Errorf("confirmed, and it is %q", place("国内"))
-	}
-
-	// A group with nothing in it moves at once.
-	if err := a.eng.SetGroupTarget("空", "direct"); err != nil {
-		t.Fatal(err)
-	}
-	tt = view(a, "规则")
-	if n := len(tt.Texts()); n == 0 {
-		t.Fatal("nothing drawn")
 	}
 }
 
@@ -1487,7 +1515,7 @@ func TestOrderShowsTheRulesAndWhatIsOutOfReach(t *testing.T) {
 	a.setPage(pageRules)
 	a.rulesTab = tabOrder
 	tt := ui.NewTester(a.view, 1040, 4000)
-	need(t, tt, "最终顺序", "局域网与私有地址", "分组 · 视频", "其余所有流量",
+	need(t, tt, "最终顺序", "局域网与私有地址", "应用 · 视频", "其余所有流量",
 		"ytimg.com 到不了这里：第 1 条先匹配，去了 proxy")
 	// The headings of the rules text name the steps under them.
 	if !tt.HasText("Google, Gemini, Antigravity") {
@@ -1567,9 +1595,13 @@ func TestApplicationsAreAddedFromTheExitCard(t *testing.T) {
 		t.Fatalf("groups %+v", gs)
 	}
 	need(t, view(a), "办公", "自定义")
-	// Removing asks first.
-	tt = view(a, "移除 办公")
-	need(t, tt, "移除 办公？")
+	// Removing, from its ⋯, asks first.
+	tt = view(a, "办公的更多操作")
+	if err := tt.ChooseMenuItem("删除"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	need(t, view(a), "移除 办公？")
 	view(a, "移除")
 	if gs := a.eng.State().Groups; len(gs) != 1 {
 		t.Errorf("not removed: %+v", gs)
@@ -1580,7 +1612,7 @@ func TestApplicationsAreAddedFromTheExitCard(t *testing.T) {
 // like a site; kind:value that the rules would not take is refused.
 func TestAGroupShowsAndTakesProgramsToo(t *testing.T) {
 	a := newTestApp(t)
-	a.rulesTab = tabDomains
+	a.rulesTab, a.exitOpen["direct"], a.appOpen["Orca"] = tabExits, true, true
 	if err := a.eng.AddCustomApp("direct", "Orca", "process:Orca"); err != nil {
 		t.Fatal(err)
 	}
@@ -1640,14 +1672,42 @@ func TestAnExitIsMadeAndDeletedOnThePage(t *testing.T) {
 	if a.newExit.open || !a.exitOpen["work"] {
 		t.Error("the form stays open, or the new exit is not shown open")
 	}
-	// A bad one is refused and said.
+	// A bad name is said as it is typed, and the exit cannot be made with it.
 	view(a, "新建出口")
-	a.newExit.id, a.newExit.arg = "Bad Name", "x"
-	tt = view(a, "建好")
-	if len(a.newExit.errs) == 0 || strings.Contains(a.eng.State().RulesText, "Bad Name") {
-		t.Errorf("a bad name was taken: %v", a.newExit.errs)
+	for name, said := range map[string]string{
+		"my work": "出口名不能有空格",
+		"a#b":     "出口名不能有 #：# 在规则文本里表示注释",
+		"a:b":     "出口名不能有冒号 :",
+		`a"b`:     "出口名不能有引号",
+		"Work":    "英文请用小写",
+		"work":    "已经有叫 work 的出口",
+		"notice":  "「notice」是 Faro 自己用的词",
+	} {
+		a.newExit.id, a.newExit.arg = name, "x"
+		tt = view(a)
+		if !tt.HasText(said) {
+			t.Errorf("%q: not said %q: %q", name, said, tt.Texts())
+		}
+		before := a.eng.State().RulesText
+		view(a, "建好")
+		if !a.newExit.open || a.eng.State().RulesText != before {
+			t.Errorf("%q was taken", name)
+		}
 	}
-	a.newExit.open = false
+	// Nothing is said of an empty name, but it is not made either.
+	a.newExit.id = ""
+	if tt = view(a, "建好"); tt.HasText("请给出口起个名字") || !a.newExit.open {
+		t.Error("an empty name: said at once, or made")
+	}
+	// A Chinese name is taken.
+	a.newExit.id, a.newExit.arg = "英国-办公", "英国-UK-2-"
+	view(a, "建好")
+	if got := a.eng.State().RulesText; !strings.Contains(got, "route 英国-办公 regex") || a.newExit.open {
+		t.Fatalf("the Chinese name was not taken:\n%s", got)
+	}
+	if errs := a.eng.DeleteRoute("英国-办公"); errs != nil {
+		t.Fatal(errs)
+	}
 	// With an application on it, it is not deleted.
 	if err := a.eng.AddCustomApp("work", "办公", "work.example"); err != nil {
 		t.Fatal(err)
@@ -1788,4 +1848,73 @@ func TestTheConfigurationIsExportedAndImported(t *testing.T) {
 	if a.cfg.importAsk {
 		t.Error("asked about a file that is not one")
 	}
+}
+
+// A route's guards are one row, and a group's rules one row, however many the
+// core needs; a row opens to show each, with the group a guard stands for.
+func TestOrderFoldsGuardsAndGroups(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01")
+	if errs := a.eng.ApplyRules("route claude region UK noudp noipv6\ndirect set:geosite-cn\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	if err := a.eng.AddCustomApp("claude", "AI", "claude.ai anthropic.com process:Claude keyword:anthropic"); err != nil {
+		t.Fatal(err)
+	}
+	// The engine: each guard knows the group it guards; each group step its group.
+	order := a.eng.Order()
+	guards := 0
+	for _, s := range order {
+		if s.Guard != "" {
+			guards++
+			if s.GuardOf != "AI" {
+				t.Errorf("guard of %q: %+v", s.GuardOf, s)
+			}
+		}
+	}
+	if guards != 6 { // three kinds, UDP and IPv6 each
+		t.Fatalf("%d guards: %+v", guards, order)
+	}
+
+	a.setPage(pageRules)
+	a.rulesTab = tabOrder
+	defer a.setPage(pageNow)
+	tt := ui.NewTester(a.view, 1180, 1400)
+	need(t, tt, "1–6", "claude 的守卫", "拒绝 UDP 和 IPv6 · 守住 AI",
+		"7–9", "应用 · AI", "claude.ai、anthropic.com · 进程 Claude · 关键词 anthropic",
+		"10", "规则集 geosite-cn")
+	if tt.HasText("UDP · 进程 Claude") {
+		t.Error("a guard's step is shown before the row is opened")
+	}
+	if err := tt.Click("claude 的守卫"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	need(t, tt, "UDP · 进程 Claude", "IPv6 · 关键词 anthropic")
+	if err := tt.Click("claude 的守卫"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("UDP · 进程 Claude") {
+		t.Error("the row did not fold again")
+	}
+}
+
+// auto and block have a card only when an application is sent there; a route's
+// guards, which block too, are pills on the route's card, not an application.
+func TestBlockAndAutoHaveACardOnlyForTheirApplications(t *testing.T) {
+	a := newTestApp(t)
+	withNodes(t, a, "🇬🇧 London 01")
+	if errs := a.eng.ApplyRules("route uk region UK noudp noipv6\ndirect set:geosite-cn\n"); errs != nil {
+		t.Fatal(errs)
+	}
+	a.eng.NewGroup("办公", "uk", "work.example")
+	tt := apps(t, a, []string{"uk"})
+	need(t, tt, "阻断 UDP", "阻断 IPv6", "办公")
+	if tt.HasText("不允许连接") || tt.HasText("所有节点中最快的") {
+		t.Error("a card for block or auto with no application on it")
+	}
+	a.eng.NewGroup("广告", "block", "ads.example")
+	a.eng.NewGroup("测速", "auto", "speed.example")
+	need(t, apps(t, a, []string{"block", "auto"}), "阻断", "不允许连接", "广告", "所有节点中最快的", "测速")
 }

@@ -141,7 +141,7 @@ func TestApplicationsOnOneExitKeepTheirOwnRules(t *testing.T) {
 			}
 		}
 	}
-	if whose["a"] != "甲|分组 · 甲" || whose["b"] != "乙|分组 · 乙" || whose["fromtext"] != "|" {
+	if whose["a"] != "甲|应用 · 甲" || whose["b"] != "乙|应用 · 乙" || whose["fromtext"] != "|" {
 		t.Errorf("whose %v", whose)
 	}
 }

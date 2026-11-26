@@ -89,6 +89,7 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		a.empty(c, "list-checks", "规则没有生效", "先在「规则文本」里改正错误", nil)
 		return
 	}
+	a.priorityHint(c, st)
 	ui.Scroll(c).Grow(1).Gap(12).Children(func() {
 		// In the order they are written; each keeps the hue it has on the「现在」page.
 		routes := make([]int, len(st.Plan.Routes))
@@ -102,6 +103,16 @@ func (a *app) exitsPage(c *ui.Context, st engine.State) {
 		}
 		a.plainExitCard(c, st, rules.TargetProxy, a.k.text2.Alpha(0.5))
 		a.plainExitCard(c, st, rules.TargetDirect, a.k.ok.Alpha(0.6))
+		// auto and block only when something is sent to them: an application can
+		// be, and one whose exit is gone is blocked; it is shown, to be moved.
+		for _, t := range []struct {
+			id  string
+			hue ui.Color
+		}{{rules.TargetAuto, a.k.text2.Alpha(0.5)}, {rules.TargetBlock, a.k.danger.Alpha(0.6)}} {
+			if len(a.sections(t.id)) > 0 {
+				a.plainExitCard(c, st, t.id, t.hue)
+			}
+		}
 		a.newExitCard(c, st)
 	})
 	a.removeAppDialog(c)
@@ -122,6 +133,9 @@ func (a *app) sections(target string) []section {
 	for _, s := range a.order {
 		if s.Target != target && s.Route != target {
 			continue
+		}
+		if s.Guard != "" {
+			continue // a route's guards are said on its card, as pills, not as an application of block
 		}
 		label := s.Label
 		if s.Group != "" {
@@ -299,7 +313,7 @@ func (a *app) exitCard(c *ui.Context, st engine.State, r rules.Route, hue ui.Col
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() { a.guardPills(c, r) })
 			}
 			ui.Divider(c)
-			a.sectionRows(c, secs)
+			a.sectionRows(c, st, secs)
 			a.addAppPanel(c, st, r.ID)
 		})
 	})
@@ -311,10 +325,17 @@ func (a *app) plainExitCard(c *ui.Context, st engine.State, id string, hue ui.Co
 	open := a.exitOpen[id]
 	secs := a.sections(id)
 	node, name := "其余所有流量", id
-	if id == rules.TargetDirect {
+	switch id {
+	case rules.TargetDirect:
 		node, name = "不经代理", "直连"
-	} else if cur := st.Choices[singcfg.TagProxy]; cur != "" {
-		node = shorten(cur, 34) + " · 其余所有流量"
+	case rules.TargetAuto:
+		node = "所有节点中最快的"
+	case rules.TargetBlock:
+		node, name = "不允许连接", "阻断"
+	default:
+		if cur := st.Choices[singcfg.TagProxy]; cur != "" {
+			node = shorten(cur, 34) + " · 其余所有流量"
+		}
 	}
 	ui.Row(c).Background(a.k.surface).Border(1, a.k.border).Radius(16).AlignItems(ui.Stretch).Clip().Children(func() {
 		ui.Box(c).Width(4).Background(hue)
@@ -339,14 +360,14 @@ func (a *app) plainExitCard(c *ui.Context, st engine.State, id string, hue ui.Co
 			}
 			if open {
 				ui.Divider(c)
-				a.sectionRows(c, secs)
+				a.sectionRows(c, st, secs)
 				a.addAppPanel(c, st, id)
 			}
 		})
 	})
 }
 
-func (a *app) sectionRows(c *ui.Context, secs []section) {
+func (a *app) sectionRows(c *ui.Context, st engine.State, secs []section) {
 	if len(secs) == 0 {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			icon(c, "shield-alert", 13, a.k.warn)
@@ -355,48 +376,44 @@ func (a *app) sectionRows(c *ui.Context, secs []section) {
 		return
 	}
 	for _, s := range secs {
+		c.Key("section:" + s.label)
 		ui.Column(c).Gap(4).Children(func() {
-			ui.Row(c).Height(30).Gap(10).AlignItems(ui.Center).Children(func() {
-				ic := "scroll-text"
-				if s.group {
-					ic = "list-checks"
-				}
-				if lib, ok := applib.Find(s.app); ok {
-					ic = lib.Icon
-				}
-				ui.Box(c).Size(24, 24).Radius(7).Background(a.k.surface2).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
-					icon(c, ic, 13, a.k.text)
-				})
-				ui.Text(c, s.label).FontSize(fsBody).FontWeight(500).Width(200).SingleLine().Ellipsis("…").Tooltip(s.label)
-				what := strings.Join(s.values[:min(len(s.values), 4)], " · ")
-				if len(s.values) > 4 {
-					what += fmt.Sprintf(" 等 %d 项", len(s.values))
-				}
-				mono(ui.Text(c, what).FontSize(fsMeta).TextColor(a.k.text2)).Grow(1).SingleLine().Ellipsis("…").Tooltip(strings.Join(s.values, "\n"))
-				switch {
-				case s.app != "":
-					a.pill(c, "规则库", a.k.text2)
-				case s.group:
-					a.pill(c, "自定义", a.k.accent)
-				default:
+			if s.group {
+				a.appRow(c, st, s)
+			} else {
+				// A part of the rules text: shown, to be changed in the text.
+				ui.Row(c).Height(32).Gap(10).Padding(0, 4).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).Width(30)
+					a.appIcon(c, s)
+					ui.Text(c, s.label).FontSize(fsBody).FontWeight(500).Width(170).SingleLine().Ellipsis("…").Tooltip(s.label)
+					mono(ui.Text(c, valuesLine(s.values)).FontSize(fsMeta).TextColor(a.k.text2)).Grow(1).SingleLine().Ellipsis("…").Tooltip(strings.Join(s.values, "\n"))
 					a.pill(c, "规则文本", a.k.text2)
-				}
-				if s.group {
-					if a.iconButton(c, "trash-2", "移除 "+s.label).Clicked() {
-						a.removeApp, a.removeAsk = s.label, true
-					}
-				} else {
-					ui.Box(c).Size(28, 28) // keeps the rows' ends in line
-				}
-			})
+					ui.Box(c).Size(49, 28) // keeps the rows' ends in line with the applications'
+				})
+			}
 			for _, sh := range s.shadow {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).Gap(6).Padding(0, 0, 0, 44).AlignItems(ui.Center).Children(func() {
 					icon(c, "shield-alert", 12, a.k.warn)
 					ui.Text(c, sh).FontSize(fsCaption).TextColor(a.k.warn).Selectable()
 				})
 			}
 		})
 	}
+}
+
+// appIcon is the small square in front of a row: the library's icon for one
+// of its applications, a list for one's own, a page for the rules text.
+func (a *app) appIcon(c *ui.Context, s section) {
+	ic := "scroll-text"
+	if s.group {
+		ic = "list-checks"
+	}
+	if lib, ok := applib.Find(s.app); ok {
+		ic = lib.Icon
+	}
+	ui.Box(c).Size(24, 24).Radius(7).Background(a.k.surface2).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+		icon(c, ic, 13, a.k.text)
+	})
 }
 
 func (a *app) startExitEdit(st engine.State, id string) {

@@ -1649,9 +1649,9 @@ func (e *Engine) NewGroup(name, target, text string) error {
 	return e.editGroups(func(gs []domains.Group, ids map[string]bool) ([]domains.Group, error) {
 		switch {
 		case name == "" || len([]rune(name)) > 30:
-			return nil, ErrGroup("请给分组起个名字，不超过 30 个字")
+			return nil, ErrGroup("请给应用起个名字，不超过 30 个字")
 		case findGroup(gs, name) >= 0:
-			return nil, ErrGroup("已经有叫 " + name + " 的分组")
+			return nil, ErrGroup("已经有叫 " + name + " 的应用")
 		}
 		if err := checkTarget(target, ids); err != nil {
 			return nil, err
@@ -1667,7 +1667,7 @@ func (e *Engine) DeleteGroup(name string) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, name)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + name + " 的分组")
+			return nil, ErrGroup("没有叫 " + name + " 的应用")
 		}
 		return append(gs[:i], gs[i+1:]...), nil
 	})
@@ -1678,7 +1678,7 @@ func (e *Engine) SetGroupTarget(name, target string) error {
 	return e.editGroups(func(gs []domains.Group, ids map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, name)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + name + " 的分组")
+			return nil, ErrGroup("没有叫 " + name + " 的应用")
 		}
 		if err := checkTarget(target, ids); err != nil {
 			return nil, err
@@ -1690,6 +1690,24 @@ func (e *Engine) SetGroupTarget(name, target string) error {
 
 // MoveGroup moves a group up (negative) or down in the order, which is the
 // order they are checked in.
+// MoveGroupBefore puts a group just in front of another, in one change: what
+// both claim is then decided by it. Nothing moves when it is in front already.
+func (e *Engine) MoveGroupBefore(name, other string) error {
+	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
+		i, j := findGroup(gs, name), findGroup(gs, other)
+		if i < 0 || j < 0 {
+			return nil, ErrGroup("没有这个应用")
+		}
+		if i < j {
+			return gs, nil
+		}
+		g := gs[i]
+		gs = append(gs[:i], gs[i+1:]...)
+		gs = append(gs[:j], append([]domains.Group{g}, gs[j:]...)...)
+		return gs, nil
+	})
+}
+
 func (e *Engine) MoveGroup(name string, delta int) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, name)
@@ -1712,7 +1730,7 @@ func (e *Engine) SetGroupDomains(name string, tokens []string) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, name)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + name + " 的分组")
+			return nil, ErrGroup("没有叫 " + name + " 的应用")
 		}
 		gs[i].Domains = nil
 		place(gs, i, sites)
@@ -1729,7 +1747,7 @@ func (e *Engine) AddDomains(name, text string) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, name)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + name + " 的分组")
+			return nil, ErrGroup("没有叫 " + name + " 的应用")
 		}
 		place(gs, i, sites)
 		return gs, nil

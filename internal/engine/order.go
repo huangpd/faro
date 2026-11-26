@@ -15,6 +15,7 @@ type Step struct {
 	Guard     string // for "block": the route whose noudp or noipv6 made it
 	Label     string // the group it comes from, or the heading above it in the rules text
 	Group     string // the group (application) it comes from, "" for the rules text
+	GuardOf   string // for a guard: the group whose rule it guards, "" for the rules text's
 	Line      int    // its line in the rules text; 0 or less for a group's
 	Network   string
 	IPVersion int
@@ -38,14 +39,17 @@ func (e *Engine) Order() []Step {
 	for i, r := range plan.Rules {
 		s := Step{Target: strings.TrimPrefix(r.Target, rules.GroupPrefix), Route: r.Route, Guard: r.Guard, Line: r.Line, Network: r.Network,
 			IPVersion: r.IPVersion, Matchers: r.Matchers, Shadowed: shadows[i]}
-		if r.Guard != "" {
-			s.Label = r.Guard + " 的守卫"
-		} else if r.Line <= 0 {
+		group := "" // the group whose line it is: a guard keeps the line of the rule it guards
+		if r.Line <= 0 {
 			if k := r.Line + len(owners) - 1; k >= 0 && k < len(owners) {
-				s.Group = active[owners[k]].Name
-				s.Label = "分组 · " + s.Group
+				group = active[owners[k]].Name
 			}
-		} else if r.Line-1 < len(headings) {
+		}
+		if r.Guard != "" {
+			s.Label, s.GuardOf = r.Guard+" 的守卫", group
+		} else if group != "" {
+			s.Group, s.Label = group, "应用 · "+group
+		} else if r.Line > 0 && r.Line-1 < len(headings) {
 			s.Label = headings[r.Line-1]
 		}
 		out[i] = s

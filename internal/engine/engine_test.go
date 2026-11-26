@@ -1250,3 +1250,76 @@ func TestAnExitIsDueByItsOwnTimer(t *testing.T) {
 		t.Error("a was due at 20:00, outside its hours")
 	}
 }
+
+// An exit named in Chinese goes all the way: through the new exit form's call,
+// a group sent to it, the config the core runs, a node chosen in it, its gate
+// shut and opened, through the core's API.
+func TestAChineseExitWorksInTheCore(t *testing.T) {
+	e := newEngine(t, (&fakeNetworksetup{}).run)
+	e.addAndWait(t, subFile(t, "🇬🇧 London 01", "🇬🇧 London 02"), 2)
+	if errs := e.AddRoute(rules.RouteLine{ID: "英国-办公", Kind: "region", Arg: "UK", Gate: true, IPv4: true, NoUDP: true}); errs != nil {
+		t.Fatal(errs)
+	}
+	if err := e.NewGroup("工作", "英国-办公", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.State(); st.Plan == nil || len(st.GroupErrors) != 0 {
+		t.Fatalf("not in force: %v %v", st.PlanErrors, st.GroupErrors)
+	}
+	e.Start()
+	waitFor(t, "running", func() bool { return e.State().Status == Running })
+	cfg, err := os.ReadFile(filepath.Join(e.State().DataDir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"route-英国-办公"`, `"dns-route-英国-办公"`, `"example.com"`} {
+		if !strings.Contains(string(cfg), want) {
+			t.Errorf("the config lacks %s", want)
+		}
+	}
+	now := func() string {
+		ctx, cancel := timeout(5 * time.Second)
+		defer cancel()
+		ps, err := e.core.API().Proxies(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ps["route-英国-办公"].Now
+	}
+	e.Choose("英国-办公", "🇬🇧 London 02")
+	waitFor(t, "the node", func() bool { return now() == "🇬🇧 London 02" })
+	e.SetGate("英国-办公", true)
+	waitFor(t, "the gate shut", func() bool { return now() == "block" })
+	e.SetGate("英国-办公", false)
+	waitFor(t, "the gate open", func() bool { return now() == "🇬🇧 London 02" })
+	// Kept: the choice is found again by the Chinese name.
+	if e.State().Choices["英国-办公"] != "🇬🇧 London 02" {
+		t.Errorf("choices %v", e.State().Choices)
+	}
+}
+
+// A group is put in front of another in one change; one in front already stays.
+func TestAGroupIsPutBeforeAnother(t *testing.T) {
+	e := newEngine(t, (&fakeNetworksetup{}).run)
+	for _, n := range []string{"a", "b", "c", "d"} {
+		if err := e.NewGroup(n, "direct", n+".example.com"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := func() string {
+		var out []string
+		for _, g := range e.State().Groups {
+			out = append(out, g.Name)
+		}
+		return strings.Join(out, " ")
+	}
+	if err := e.MoveGroupBefore("d", "b"); err != nil || names() != "a d b c" {
+		t.Errorf("d before b: %v %q", err, names())
+	}
+	if err := e.MoveGroupBefore("a", "c"); err != nil || names() != "a d b c" {
+		t.Errorf("a, in front already, moved: %q", names())
+	}
+	if err := e.MoveGroupBefore("x", "a"); err == nil {
+		t.Error("no such group: no error")
+	}
+}

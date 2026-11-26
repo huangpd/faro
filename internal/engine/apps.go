@@ -52,7 +52,7 @@ func (e *Engine) SetGroupItems(name string, tokens []string) error {
 	return e.editGroups(func(gs []domains.Group, _ map[string]bool) ([]domains.Group, error) {
 		i := findGroup(gs, name)
 		if i < 0 {
-			return nil, ErrGroup("没有叫 " + name + " 的分组")
+			return nil, ErrGroup("没有叫 " + name + " 的应用")
 		}
 		gs[i].Domains = nil
 		gs[i].Rules = others
