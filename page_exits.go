@@ -705,11 +705,30 @@ func (a *app) newExitCard(c *ui.Context, st engine.State) {
 			body()
 		})
 	}
+	// The name is checked as it is typed: what is wrong with it is said under
+	// the field at once, and the exit cannot be made until it is right.
+	nameErr := ""
+	if id := strings.TrimSpace(f.id); id != "" {
+		nameErr = rules.CheckRouteID(id)
+		if nameErr == "" && st.Plan != nil {
+			for _, r := range st.Plan.Routes {
+				if r.ID == id {
+					nameErr = "已经有叫 " + id + " 的出口"
+				}
+			}
+		}
+	}
 	a.card(c).Gap(6).Children(func() {
 		ui.Text(c, "新建出口").FontSize(fsHeading).FontWeight(600)
 		row("名字", func() {
-			mono(ui.TextInput(c, &f.id).Label("出口名").Placeholder("小写字母、数字和 -，如 work").Width(240))
+			mono(ui.TextInput(c, &f.id).Label("出口名").Placeholder("中文、小写字母、数字和 -，如 工作、work").Width(240))
 		})
+		if nameErr != "" {
+			ui.Row(c).Gap(6).Padding(0, 0, 0, 84).AlignItems(ui.Center).Children(func() {
+				icon(c, "shield-alert", 13, a.k.danger)
+				ui.Text(c, nameErr).FontSize(fsMeta).TextColor(a.k.danger)
+			})
+		}
 		row("节点", func() {
 			ui.Select(c, &f.kind, []string{byName, byRegion}).Label("节点的选法").Width(120)
 			if f.kind == byRegion {
@@ -759,7 +778,11 @@ func (a *app) newExitCard(c *ui.Context, st engine.State) {
 			if a.button(c, btnSecondary, "", "取消").Clicked() {
 				f.open = false
 			}
-			if a.button(c, btnPrimary, "check", "建好").Clicked() {
+			done := a.button(c, btnPrimary, "check", "建好")
+			if nameErr != "" || strings.TrimSpace(f.id) == "" {
+				done.Disabled(true)
+			}
+			if done.Clicked() && nameErr == "" && strings.TrimSpace(f.id) != "" {
 				kind := "regex"
 				if f.kind == byRegion {
 					kind = "region"

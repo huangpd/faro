@@ -131,8 +131,6 @@ type Error struct {
 
 func (e Error) Error() string { return fmt.Sprintf("line %d: %s", e.Line, e.Msg) }
 
-var idRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
-
 var matcherKinds = map[string]string{
 	"domain": "domain_suffix", "full": "domain", "keyword": "domain_keyword",
 	"regex": "domain_regex", "cidr": "ip_cidr", "set": "rule_set",
@@ -439,10 +437,8 @@ func parseRoute(f []string, have map[string]*Route, d *defs) (*Route, string) {
 	}
 	id := f[0]
 	switch {
-	case !idRe.MatchString(id):
-		return nil, fmt.Sprintf("route id %q: use lower-case letters, digits and '-', starting with a letter", id)
-	case id == TargetProxy || id == TargetAuto || id == TargetDirect || id == TargetBlock:
-		return nil, fmt.Sprintf("%q is built in", id)
+	case CheckRouteID(id) != "":
+		return nil, CheckRouteID(id)
 	case have[id] != nil:
 		return nil, fmt.Sprintf("route %q is defined twice", id)
 	}
